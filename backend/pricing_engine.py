@@ -25,6 +25,28 @@ METHODOLOGY:
      - Optimal  = brand_adjusted_base * 1.03  (target realized price)
      - Ceiling  = brand_adjusted_base * 1.12  (headroom for negotiation / top-floor premiums)
 5. Classify data confidence by surviving comparable count.
+
+PHASE 3 — MICRO-ADJUSTMENT LAYER (apply_micro_adjustments):
+6. Take the Phase 2 three-tier PSF output as a read-only base.
+7. Apply a floor premium: multiplier = 1 + (floor_number / 1000).
+   - Floor 5  -> +0.5%   (low-rise, baseline)
+   - Floor 50 -> +5.0%   (mid-tower, view premium begins)
+   - Floor 80 -> +8.0%   (ultra-prime penthouse tier)
+8. Apply a micro-view modifier (granular unit-level view, distinct from Phase 2's
+   macro corridor filter):
+   - "Full Marina" -> +8.0%  (unobstructed full-marina panorama)
+   - "Internal"    -> -5.0%  (internal courtyard / shaft-facing, discount)
+   - Anything else -> 0.0%   (Partial Marina, Sea, City etc. = no micro adjustment)
+9. Apply both multipliers uniformly across all three tiers (preserves the
+   Floor/Optimal/Ceiling band structure).
+10. Compute estimated_unit_price = final_optimal_psf * input_specs.sqft.
+    If sqft is missing -> estimated_unit_price is None and UI renders [DATA MISSING].
+
+The micro-view vocabulary is intentionally disjoint from Phase 2's macro corridor
+vocabulary. Phase 2 filters by "Marina" / "Sea" / "City" (the tower's general
+orientation); Phase 3 adjusts by "Full Marina" / "Partial Marina" / "Internal"
+(the specific unit's window exposure within that tower). A unit can therefore
+be in a "Marina" corridor tower but still face "Internal" if it's the wrong stack.
 """
 
 from __future__ import annotations
@@ -76,6 +98,24 @@ WEIGHT_AMENITY = 0.40
 # Brand premium applied on top of weighted base.
 TIER_1_BRAND_PREMIUM = 0.05  # +5.0%
 TIER_2_BRAND_PREMIUM = 0.00  # 0.0%
+
+# ---------------------------------------------------------------------------
+# Phase 3 — Micro-adjustment configuration
+# ---------------------------------------------------------------------------
+
+# Floor premium is expressed as a fraction per floor. floor_number / 1000 means
+# floor 80 carries an 8.0% premium over the tower's base PSF; floor 5 carries 0.5%.
+# This is a single linear scalar — deliberately simple and auditable. It is NOT
+# tunable per deal; changing the curve is a board-level decision.
+FLOOR_PREMIUM_DIVISOR = 1000.0
+
+# Micro-view modifiers (Phase 3 unit-level granularity, distinct from Phase 2 macro
+# corridor). Keys are case-insensitive matched at runtime.
+MICRO_VIEW_MODIFIERS = {
+    "full marina": 0.08,   # +8.0% — unobstructed full-marina panorama
+    "internal": -0.05,     # -5.0% — courtyard / shaft-facing, structural discount
+}
+MICRO_VIEW_DEFAULT_MODIFIER = 0.0  # Partial Marina / Sea / City / unspecified = no adjustment
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +316,142 @@ def calculate_base_pricing(input_specs: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def apply_micro_adjustments(
+    base_pricing_json: Dict[str, Any], input_specs: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Apply unit-level micro-adjustments (floor premium + micro-view modifier) to a
+    Phase 2 three-tier pricing payload, producing the final unit-specific PSF matrix.
+
+    The Phase 2 payload is treated as READ-ONLY. We never mutate it; we derive
+    fresh values from its floor_psf / optimal_psf / ceiling_psf. This preserves
+    the audit trail: the boardroom can always compare "macro base" vs "unit final".
+
+    Args:
+        base_pricing_json: dict returned by calculate_base_pricing(). Must contain
+            floor_psf, optimal_psf, ceiling_psf (may be None on no-match).
+        input_specs: dict with keys:
+            - unit_type (str, required): echoed into the output for the UI
+            - view (str, required): MICRO view — "Full Marina" | "Internal" | other
+            - floor_number (int|float, required): physical floor of the unit
+            - sqft (int|float, optional): unit area in sqft. If absent,
+              estimated_unit_price = None and UI renders [DATA MISSING].
+
+    Returns:
+        dict with keys:
+            - unit_type (str)
+            - view (str): the micro view as supplied
+            - floor (int|None)
+            - final_floor_psf (float|None)
+            - final_optimal_psf (float|None)
+            - final_ceiling_psf (float|None)
+            - estimated_unit_price (float|None)
+            - floor_premium_pct (float|None): the applied floor premium as percent
+            - micro_view_modifier_pct (float|None): the applied view modifier as percent
+            - combined_adjustment_pct (float|None): net combined uplift as percent
+            - base_data_confidence (str): carried through from Phase 2
+            - base_comps_used (list[str]): carried through from Phase 2
+            - note (str, optional): present only on edge cases (no-match, missing sqft)
+    """
+    # --- Echo identifying fields -------------------------------------------------
+    unit_type = str(input_specs.get("unit_type", "")).strip().upper()
+    micro_view = str(input_specs.get("view", "")).strip()
+    floor_number_raw = input_specs.get("floor_number")
+
+    # --- Validate required inputs ------------------------------------------------
+    if not unit_type:
+        raise ValueError("input_specs requires 'unit_type'.")
+    if not micro_view:
+        raise ValueError("input_specs requires 'view' (micro view, e.g. 'Full Marina').")
+    if floor_number_raw is None:
+        raise ValueError("input_specs requires 'floor_number'.")
+
+    try:
+        floor_number = int(floor_number_raw)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"input_specs.floor_number must be numeric; got {floor_number_raw!r}.") from e
+
+    if floor_number < 0:
+        raise ValueError(f"floor_number must be >= 0; got {floor_number}.")
+
+    # --- Propagate the no-match edge case from Phase 2 ---------------------------
+    # If Phase 2 found no comps, every PSF is None. We cannot apply micro adjustments
+    # to None. Surface this explicitly so the UI renders [DATA MISSING] and the LLM
+    # narrator is forbidden from inventing a number.
+    base_optimal = base_pricing_json.get("optimal_psf")
+    if base_optimal is None:
+        return {
+            "unit_type": unit_type,
+            "view": micro_view,
+            "floor": floor_number,
+            "final_floor_psf": None,
+            "final_optimal_psf": None,
+            "final_ceiling_psf": None,
+            "estimated_unit_price": None,
+            "floor_premium_pct": None,
+            "micro_view_modifier_pct": None,
+            "combined_adjustment_pct": None,
+            "base_data_confidence": base_pricing_json.get("data_confidence", "None"),
+            "base_comps_used": base_pricing_json.get("comps_used", []),
+            "note": "Phase 2 returned no comps. UI must render [DATA MISSING] for all PSF and price fields.",
+        }
+
+    base_floor = base_pricing_json["floor_psf"]
+    base_ceiling = base_pricing_json["ceiling_psf"]
+
+    # --- Compute the floor premium multiplier ------------------------------------
+    floor_premium_frac = floor_number / FLOOR_PREMIUM_DIVISOR  # e.g. 80 -> 0.08
+    floor_multiplier = 1.0 + floor_premium_frac
+
+    # --- Compute the micro-view modifier multiplier ------------------------------
+    micro_view_key = micro_view.lower()
+    micro_view_frac = MICRO_VIEW_MODIFIERS.get(micro_view_key, MICRO_VIEW_DEFAULT_MODIFIER)
+    view_multiplier = 1.0 + micro_view_frac
+
+    # --- Combine and apply uniformly across all three tiers ---------------------
+    combined_multiplier = floor_multiplier * view_multiplier
+    final_floor_psf = round(base_floor * combined_multiplier, 2)
+    final_optimal_psf = round(base_optimal * combined_multiplier, 2)
+    final_ceiling_psf = round(base_ceiling * combined_multiplier, 2)
+
+    # --- Compute estimated unit price (handles missing sqft gracefully) ----------
+    sqft_raw = input_specs.get("sqft")
+    if sqft_raw is None or sqft_raw == "":
+        estimated_unit_price = None
+        sqft_note = "input_specs.sqft missing. UI must render [DATA MISSING] for estimated_unit_price."
+    else:
+        try:
+            sqft = float(sqft_raw)
+            if sqft <= 0:
+                raise ValueError("must be > 0")
+            estimated_unit_price = round(final_optimal_psf * sqft, 2)
+            sqft_note = None
+        except (TypeError, ValueError):
+            estimated_unit_price = None
+            sqft_note = f"input_specs.sqft invalid ({sqft_raw!r}). UI must render [DATA MISSING] for estimated_unit_price."
+
+    # Combined uplift expressed as percent, for the executive summary tile.
+    combined_adjustment_pct = round((combined_multiplier - 1.0) * 100, 2)
+
+    payload: Dict[str, Any] = {
+        "unit_type": unit_type,
+        "view": micro_view,
+        "floor": floor_number,
+        "final_floor_psf": final_floor_psf,
+        "final_optimal_psf": final_optimal_psf,
+        "final_ceiling_psf": final_ceiling_psf,
+        "estimated_unit_price": estimated_unit_price,
+        "floor_premium_pct": round(floor_premium_frac * 100, 2),
+        "micro_view_modifier_pct": round(micro_view_frac * 100, 2),
+        "combined_adjustment_pct": combined_adjustment_pct,
+        "base_data_confidence": base_pricing_json.get("data_confidence", "Unknown"),
+        "base_comps_used": base_pricing_json.get("comps_used", []),
+    }
+    if sqft_note:
+        payload["note"] = sqft_note
+    return payload
+
+
 # ---------------------------------------------------------------------------
 # Standalone self-validation
 #   Run:  python backend/pricing_engine.py
@@ -314,10 +490,90 @@ if __name__ == "__main__":
         },
     ]
 
+    print("\n--- PHASE 2: calculate_base_pricing ---")
+    phase2_results = []
     for t in test_specs:
-        print(f"\n--- {t['name']} ---")
+        print(f"\n[{t['name']}]")
         try:
             result = calculate_base_pricing(t["specs"])
+            phase2_results.append((t, result))
+            for k, v in result.items():
+                print(f"  {k}: {v}")
+        except Exception as e:
+            print(f"  ERROR: {e}")
+            phase2_results.append((t, None))
+
+    # --- Phase 3 micro-adjustment tests ----------------------------------------
+    print("\n" + "=" * 78)
+    print("--- PHASE 3: apply_micro_adjustments ---")
+    print("=" * 78)
+
+    # We pair each Phase 3 scenario with a Phase 2 base that has comps, so the
+    # micro-adjustments have real numbers to chew on. The 2BR Sea + Emaar payload
+    # (Medium confidence, 3 comps) is the cleanest base for demonstrating the
+    # premium/discount curve.
+    base_2br_sea_emaar = calculate_base_pricing(
+        {"unit_type": "2BR", "view": "Sea", "developer": "Emaar Properties"}
+    )
+    base_1br_city = calculate_base_pricing({"unit_type": "1BR", "view": "City"})
+    base_4br_nomatch = calculate_base_pricing({"unit_type": "4BR", "view": "Sea"})
+
+    micro_test_specs = [
+        {
+            "name": "Penthouse — Floor 80, Full Marina, 2,400 sqft (Emaar 2BR Sea base)",
+            "base": base_2br_sea_emaar,
+            "specs": {
+                "unit_type": "2BR",
+                "view": "Full Marina",
+                "floor_number": 80,
+                "sqft": 2400,
+            },
+        },
+        {
+            "name": "Low-floor penalty — Floor 5, Internal, 1,150 sqft (1BR City base)",
+            "base": base_1br_city,
+            "specs": {
+                "unit_type": "1BR",
+                "view": "Internal",
+                "floor_number": 5,
+                "sqft": 1150,
+            },
+        },
+        {
+            "name": "Mid-floor baseline — Floor 50, Partial Marina, 1,850 sqft",
+            "base": base_2br_sea_emaar,
+            "specs": {
+                "unit_type": "2BR",
+                "view": "Partial Marina",
+                "floor_number": 50,
+                "sqft": 1850,
+            },
+        },
+        {
+            "name": "Missing sqft edge case — Floor 60, Full Marina, no sqft",
+            "base": base_2br_sea_emaar,
+            "specs": {
+                "unit_type": "2BR",
+                "view": "Full Marina",
+                "floor_number": 60,
+            },
+        },
+        {
+            "name": "No-match propagation — 4BR Sea base, Floor 70, Full Marina",
+            "base": base_4br_nomatch,
+            "specs": {
+                "unit_type": "4BR",
+                "view": "Full Marina",
+                "floor_number": 70,
+                "sqft": 3500,
+            },
+        },
+    ]
+
+    for t in micro_test_specs:
+        print(f"\n[{t['name']}]")
+        try:
+            result = apply_micro_adjustments(t["base"], t["specs"])
             for k, v in result.items():
                 print(f"  {k}: {v}")
         except Exception as e:

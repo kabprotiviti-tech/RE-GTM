@@ -68,3 +68,57 @@ Stage Summary:
   traceable to comp_ids in mock_dubai_marina.json.
 - Ready for Phase 3: FastAPI wrapper exposing this engine as /api/pricing endpoint, then
   LLM Strategy Narrator layer receiving only the JSON output above.
+
+---
+Task ID: 3
+Agent: Lead Architect (main)
+Task: Extend pricing_engine.py with apply_micro_adjustments(base_pricing_json, input_specs).
+Apply floor premium (1 + floor_number/1000) and micro-view modifier (Full Marina +8%,
+Internal -5%) to Phase 2 three-tier PSF; return final unit-level matrix with estimated_unit_price.
+
+Work Log:
+- Added Phase 3 section to the module docstring (steps 6-10) explaining the disjoint
+  macro-vs-micro view vocabulary (Phase 2 filters "Marina/Sea/City"; Phase 3 adjusts
+  "Full Marina/Partial Marina/Internal").
+- Added configuration constants: FLOOR_PREMIUM_DIVISOR=1000.0, MICRO_VIEW_MODIFIERS
+  ({full marina: +0.08, internal: -0.05}), MICRO_VIEW_DEFAULT_MODIFIER=0.0.
+- Implemented apply_micro_adjustments(): treats Phase 2 payload as READ-ONLY, derives
+  fresh final PSF values. Validates unit_type, view, floor_number; coerces floor to int.
+- Floor premium = floor_number / 1000.0 (linear, auditable; not per-deal tunable).
+- Micro-view modifier resolved case-insensitively from MICRO_VIEW_MODIFIERS, falls back
+  to 0.0% for unrecognized values (Partial Marina, Sea, City, etc.).
+- Combined multiplier = floor_multiplier * view_multiplier; applied uniformly across
+  Floor / Optimal / Ceiling to preserve band structure.
+- estimated_unit_price = final_optimal_psf * sqft. Missing or invalid sqft -> None
+  with explicit note instructing UI to render [DATA MISSING].
+- No-match propagation: if Phase 2 returned None PSFs, Phase 3 returns None for all
+  PSFs and price fields, with note "Phase 2 returned no comps. UI must render
+  [DATA MISSING] for all PSF and price fields."
+- Output carries audit trail: floor_premium_pct, micro_view_modifier_pct,
+  combined_adjustment_pct, base_data_confidence, base_comps_used.
+- Extended self-validation: 6 Phase 2 cases + 5 Phase 3 cases = 11 total. All pass.
+
+Stage Summary:
+- Engine file: /home/z/my-project/backend/pricing_engine.py (extended, ~585 lines).
+- Public API:
+    * calculate_base_pricing(input_specs)            -> Phase 2 macro three-tier PSF
+    * apply_micro_adjustments(base_json, input_specs) -> Phase 3 unit-level final PSF
+- Validated Phase 3 outputs:
+    * Penthouse (Floor 80, Full Marina, 2400 sqft, Emaar 2BR Sea base):
+      Final Floor AED 3,541 / Optimal AED 3,800 / Ceiling AED 4,132
+      Estimated unit price AED 9,119,328 | Combined uplift +16.64% (8% floor + 8% view)
+    * Low-floor penalty (Floor 5, Internal, 1150 sqft, 1BR City base):
+      Final Floor AED 2,108 / Optimal AED 2,262 / Ceiling AED 2,459
+      Estimated unit price AED 2,601,070 | Combined adjustment -4.53% (0.5% floor - 5% view)
+    * Mid-floor baseline (Floor 50, Partial Marina, 1850 sqft, Emaar 2BR Sea base):
+      Final Floor AED 3,188 / Optimal AED 3,421 / Ceiling AED 3,719
+      Estimated unit price AED 6,327,981 | Combined uplift +5.0% (5% floor + 0% view)
+    * Missing sqft edge case: estimated_unit_price=None, note instructs [DATA MISSING]
+    * No-match propagation (4BR base): all PSFs None, note instructs [DATA MISSING]
+- Strategic signal: the same 2BR unit at AED 3,800/sqft on Floor 80 Full Marina vs
+  AED 2,262/sqft on Floor 5 Internal is a AED 1,538/sqft spread -> on a 2,400 sqft
+  penthouse that is AED 3.69M of pricing power unlocked purely by floor+view math.
+- Contract integrity: NO LLM invoked. NO external calls. Phase 2 payload treated as
+  read-only. All outputs traceable to comp_ids + floor_number + view + sqft inputs.
+- Ready for Phase 4: FastAPI wrapper (POST /api/pricing/standard, POST /api/pricing/micro)
+  exposing both functions, then LLM Strategy Narrator consuming only the final JSON.
