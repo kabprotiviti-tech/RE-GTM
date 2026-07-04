@@ -415,3 +415,102 @@ Stage Summary:
 - Ready for Phase 8: FastAPI wrapper exposing all engines + both narrator
   functions as endpoints, then Next.js 14 frontend consuming those endpoints
   with the theme switcher wired into a React context provider.
+
+---
+Task ID: 8
+Agent: Lead Architect (main)
+Task: Build the full Next.js 14 frontend with animated UI, 6-theme switcher,
+all engine + LLM endpoints, and Bloomberg-grade visual polish. Deploy to preview.
+
+Work Log:
+- Initialized fullstack environment via init-fullstack.sh (Next.js 16, shadcn/ui,
+  Tailwind 4, framer-motion, recharts, z-ai-web-dev-sdk all pre-installed).
+- Ported all 4 Python deterministic engines to TypeScript (faithful 1:1 ports):
+    src/lib/engines/mock-data.ts       — 8 Dubai Marina comps
+    src/lib/engines/pricing-engine.ts  — calculateBasePricing + applyMicroAdjustments
+    src/lib/engines/cashflow-sim.ts    — simulateCashflow + summarizeCashflow
+    src/lib/engines/scenario-engine.ts — generateScenarios + summarizeScenarios
+- Created 5 API routes (server-side, deterministic math + LLM narration):
+    /api/pricing    — wraps pricing engine (Phase 2 + 3)
+    /api/cashflow   — wraps cashflow engine (Phase 4)
+    /api/scenarios  — wraps scenario engine (Phase 5)
+    /api/gtm        — LLM GTM narrator (Phase 6, z-ai-web-dev-sdk)
+    /api/rationale  — LLM pricing rationale narrator (Phase 7a)
+- Moved theme system to src/lib/themes/index.ts and fixed kebab-case key
+  alignment between ThemeId type and THEMES object (was the root cause of
+  theme switcher not applying on reload).
+- Built 6 animated components:
+    AnimatedCounter  — Bloomberg-gravity AED tick-up (expo-out, 1.2s)
+    Typewriter       — word-by-word LLM narration streaming with gold cursor
+    FloorPicker      — vertical tower scrubber with live floor premium updates
+    ScenarioChart    — morph chart with Framer Motion shared layout underline
+    CashflowChart    — Recharts area with downpayment/handover reference lines
+    ThemeSwitcher    — 6-theme dropdown with palette swatches + flagship badge
+- Updated layout.tsx with Inter font + pre-paint script that applies the saved
+  theme to <html> before React hydrates (prevents white flash on load).
+- Updated globals.css with CV theme system: CSS variables mapped to shadcn
+  tokens, custom scrollbar, smooth 0.4s theme transitions, gold selection.
+- Built the main page (src/app/page.tsx, ~970 lines) with 7 sections:
+    1. Header — sticky, blurred, with theme switcher + engine-live indicator
+    2. Hero — "AED 2 Billion tower launches" headline
+    3. Input Controls — 7-parameter spec editor (unit type, view, floor, sqft,
+       developer, payment plan, timeline)
+    4. Pricing Section — 3-tier tiles (Floor/Optimal/Ceiling) + estimated unit
+       price + floor picker scrubber
+    5. Rationale Section — LLM PropTech Data Scientist narration with typewriter
+       + comps audit trail
+    6. Scenario Section — Aggressive/Base/Conservative morph chart + 4 summary
+       stats (revenue spread, carry spread, net position, absorption spread)
+    7. Cashflow Section — 36-month area chart + 4 summary stats (month 0,
+       mid-build, handover, total)
+    8. GTM Section — LLM McKinsey Partner narration with typewriter
+    9. Footer — anti-hallucination protocol badge
+- All sections feature:
+    * Staggered reveal-on-scroll animations (Framer Motion, expo-out)
+    * Animated AED counters that tick up from 0
+    * Theme-aware styling via CSS variables
+    * Responsive grid layouts (mobile-first)
+- Browser-verified via agent-browser:
+    * Page renders with no errors (HTTP 200, 61KB HTML)
+    * Dark Obsidian theme applied correctly (#0A0A0A ground)
+    * All 6 sections render with content
+    * Theme switcher opens, shows 6 options, switches palette live
+    * Ivory Boardroom (light) verified working (#F5F1E8 ground)
+    * LLM narration generates successfully (GTM + rationale APIs return 200)
+    * Floor picker, scenario chart, cashflow chart all visible
+- Lint: clean (0 errors, 0 warnings)
+
+Stage Summary:
+- Frontend: Next.js 16 app at /home/z/my-project/ (dev server running on :3000)
+- Files created:
+    src/lib/engines/mock-data.ts
+    src/lib/engines/pricing-engine.ts
+    src/lib/engines/cashflow-sim.ts
+    src/lib/engines/scenario-engine.ts
+    src/lib/themes/index.ts (moved + kebab-case key fix)
+    src/app/api/pricing/route.ts
+    src/app/api/cashflow/route.ts
+    src/app/api/scenarios/route.ts
+    src/app/api/gtm/route.ts
+    src/app/api/rationale/route.ts
+    src/app/page.tsx (main dashboard, ~970 lines)
+    src/app/layout.tsx (Inter font + pre-paint theme script)
+    src/app/globals.css (CV theme variable layer)
+    src/components/capital-velocity/AnimatedCounter.tsx
+    src/components/capital-velocity/Typewriter.tsx
+    src/components/capital-velocity/FloorPicker.tsx
+    src/components/capital-velocity/ScenarioChart.tsx
+    src/components/capital-velocity/CashflowChart.tsx
+    src/components/capital-velocity/ThemeSwitcher.tsx
+- Animation signature moments delivered:
+    * Bloomberg-gravity AED counter tick-up (expo-out, 1.2s)
+    * LLM typewriter streaming with gold blinking cursor
+    * Floor picker vertical scrub with live PSF updates
+    * Scenario morph chart with shared-layout underline animation
+    * Cashflow area chart with animated draw-in
+    * Staggered section reveals on scroll
+    * 6-theme live switching with 0.4s palette cross-fade
+- Preview link: https://preview-<bot-id>.space-z.ai/
+- Contract integrity: All math is deterministic TypeScript (ported from Python).
+  LLM receives JSON read-only and writes prose only. Anti-hallucination protocol
+  enforced in both /api/gtm and /api/rationale prompts.

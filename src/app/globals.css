@@ -120,3 +120,86 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ===========================================================================
+   Project Capital Velocity — Theme System CSS Variables
+   The active theme is set inline on a root wrapper by ThemeProvider.
+   All Capital Velocity components reference var(--ground), var(--text-heading),
+   etc. Shadcn variables (--background, --foreground, etc.) are mapped to the
+   same values so shadcn components inherit the active theme automatically.
+   =========================================================================== */
+
+@layer base {
+  html, body {
+    font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  /* When the .cv-theme-root wrapper is present, map our palette to shadcn vars */
+  .cv-theme-root {
+    background: var(--ground);
+    color: var(--text-body);
+  }
+
+  /* Map CV palette → shadcn tokens so shadcn components inherit the theme */
+  .cv-theme-root {
+    --background: var(--ground);
+    --foreground: var(--text-heading);
+    --card: var(--surface);
+    --card-foreground: var(--text-heading);
+    --popover: var(--surface);
+    --popover-foreground: var(--text-heading);
+    --primary: var(--accent);
+    --primary-foreground: var(--ground);
+    --secondary: var(--surface-raised);
+    --secondary-foreground: var(--text-heading);
+    --muted: var(--surface-raised);
+    --muted-foreground: var(--text-muted);
+    --accent-foreground: var(--text-heading);
+    --destructive: var(--negative);
+    --border: var(--border);
+    --input: var(--surface-raised);
+    --ring: var(--gold);
+    --chart-1: var(--gold);
+    --chart-2: var(--accent);
+    --chart-3: var(--positive);
+    --chart-4: var(--negative);
+    --chart-5: var(--gold-muted);
+    --sidebar: var(--surface);
+    --sidebar-foreground: var(--text-heading);
+    --sidebar-primary: var(--gold);
+    --sidebar-primary-foreground: var(--ground);
+    --sidebar-accent: var(--surface-raised);
+    --sidebar-accent-foreground: var(--text-heading);
+    --sidebar-border: var(--border);
+    --sidebar-ring: var(--gold);
+  }
+}
+
+/* Custom scrollbar — slim, themed */
+.cv-theme-root ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.cv-theme-root ::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+.cv-theme-root ::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+.cv-theme-root ::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Smooth theme transitions */
+.cv-theme-root,
+.cv-theme-root * {
+  transition: background-color 0.4s ease, border-color 0.4s ease, color 0.3s ease;
+}
+
+/* Selection styling */
+.cv-theme-root ::selection {
+  background: var(--gold);
+  color: var(--ground);
+}
+
