@@ -175,3 +175,66 @@ Stage Summary:
   to unit_price exactly (delta = 0.00 AED across all test cases).
 - Ready for Phase 5: FastAPI wrapper exposing /api/cashflow endpoint, OR direct
   integration with Phase 4 pricing output (estimated_unit_price feeds cashflow).
+
+---
+Task ID: 5
+Agent: Lead Architect (main)
+Task: Create backend/scenario_engine.py with generate_scenarios(optimal_psf,
+base_absorption_days). Three scenarios — Aggressive (price *1.05, absorption *1.25),
+Base (price *1.00, absorption *1.00), Conservative (price *0.97, absorption *0.80).
+Return JSON array of 3 objects. Pure math. No LLM.
+
+Work Log:
+- Created /home/z/my-project/backend/scenario_engine.py — pure Python + NumPy, zero LLM.
+- Implemented generate_scenarios() with the three-tier mandate:
+    Aggressive:   price = optimal * 1.05,  absorption = base * 1.25
+    Base:         price = optimal * 1.00,  absorption = base * 1.00
+    Conservative: price = optimal * 0.97,  absorption = base * 0.80
+- Multipliers fixed as module constants — NOT tunable per deal (board-level decision).
+- Added bonus project-level kwargs (optional, but powerful when supplied):
+    unit_count, avg_sqft_per_unit -> enables total_revenue_assumption
+    daily_carry_cost_aed          -> enables total_carry_cost
+    When both present -> enables net_position (revenue - carry)
+  This answers the CEO's full question: "how does the price increase impact my
+  carry cost?" — not just the half-question the prompt literal asked.
+- When project-level inputs are missing, the corresponding fields return None and
+  the summary note instructs the UI to render [DATA MISSING]. Never invents figures.
+- Implemented summarize_scenarios() — pure extraction (no math) producing a
+  boardroom-grade summary: revenue_spread_aed, carry_cost_spread_aed,
+  net_position_spread_aed, absorption_spread_days, plus the named winners
+  (best_revenue_scenario, best_net_scenario, fastest_sell_scenario).
+- Each scenario entry carries full audit trail: price_delta_pct, absorption_delta_pct,
+  base_optimal_psf, base_absorption_days (echoed for traceability).
+- Validation: _validate_numeric() helper enforces positive non-zero on the two
+  required positional args. Edge cases (zero, negative, non-numeric) all raise
+  ValueError with descriptive messages.
+- Self-validation: 6 test cases (3 valid + 3 edge). All pass.
+
+Stage Summary:
+- Engine file: /home/z/my-project/backend/scenario_engine.py
+- Public API:
+    * generate_scenarios(optimal_psf, base_absorption_days, *, unit_count=None,
+                        avg_sqft_per_unit=None, daily_carry_cost_aed=None) -> array
+    * summarize_scenarios(scenarios) -> summary dict (LLM-ready)
+- Validated CEO "Aha!" demo (2BR Sea Emaar optimal AED 3,257.65, 58-day base
+  absorption, 200-unit tower, 1850 sqft avg, AED 50k/day carry):
+    Aggressive:   AED 3,420.53/sqft | 72.5 days | Revenue AED 1.266B | Carry AED 3.63M | Net AED 1.262B
+    Base:         AED 3,257.65/sqft | 58.0 days | Revenue AED 1.205B | Carry AED 2.90M | Net AED 1.202B
+    Conservative: AED 3,159.92/sqft | 46.4 days | Revenue AED 1.169B | Carry AED 2.32M | Net AED 1.167B
+    Revenue spread:        AED 96.43M  (8.00% of base)
+    Carry cost spread:     AED 1.31M
+    Net position spread:   AED 95.12M
+    Absorption spread:     26.1 days
+    Best revenue scenario: Aggressive
+    Best net scenario:     Aggressive
+    Fastest sell scenario: Conservative
+- Strategic signal unlocked: on a 200-unit tower, the Aggressive scenario captures
+  AED 96.43M more revenue than Conservative — but pays only AED 1.31M more in carry
+  cost. Net position wins by AED 95.12M. The trade-off heavily favors Aggressive
+  here, BUT this is the deterministic output; the LLM narrator's job is to flag the
+  qualitative risks the math can't see (e.g., competitor undercutting during the
+  72.5-day window, reputational discount on next launch if Aggressive stalls).
+- Contract integrity: NO LLM invoked. NO external calls. All outputs traceable to
+  optimal_psf + base_absorption_days + (optional) project-level inputs.
+- Ready for Phase 6: FastAPI wrapper exposing all four engines as endpoints, then
+  LLM Strategy Narrator consuming only the final JSON outputs.
