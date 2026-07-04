@@ -319,3 +319,99 @@ Stage Summary:
     Phase 6: backend/llm_narrator.py          -> generate_gtm_strategy()
 - Ready for Phase 7: FastAPI wrapper exposing the full pipeline as endpoints,
   then Next.js 14 frontend in Obsidian dark mode consuming those endpoints.
+
+---
+Task ID: 7
+Agent: Lead Architect (main)
+Task: Phase 7a — Add generate_pricing_rationale(pricing_json, comps_used) to
+backend/llm_narrator.py. PropTech Data Scientist persona, <=3 sentences, must cite
+absorption days + view premiums from JSON. Phase 7b — Expand theme system from
+single Obsidian dark to 6 themes including lighter options.
+
+Work Log (Phase 7a — Pricing Rationale Narrator):
+- Extended llm_narrator.py module docstring with Phase 7 section explaining the
+  distinct persona (PropTech Data Scientist vs McKinsey Partner) and distinct
+  output contract (<=3 sentences, must cite absorption days + view premiums).
+- Added RATIONALE_SYSTEM_PROMPT — locked verbatim per Phase 7 spec.
+- Added RATIONALE_USER_PROMPT_TEMPLATE with explicit anti-hallucination clause:
+  "DO NOT recompute, estimate, or invent any number; quote only from this payload.
+  You MUST cite at least one absorption_days figure and at least one view/floor
+  premium figure from the JSON above. Maximum 3 sentences. If a required figure
+  is missing from the JSON, omit that citation rather than inventing one."
+- Implemented generate_pricing_rationale(pricing_json, comps_used): validates
+  inputs, builds prompt, calls LLM via _call_llm_cli(), returns narrative or
+  fallback. NEVER raises — same resilience contract as generate_gtm_strategy().
+- Added _fallback_rationale() helper — preserves raw pricing JSON + comps list
+  for UI display when LLM is unavailable.
+- Handles both comps-as-full-objects AND comps-as-bare-ids inputs (Test 6
+  validates the lighter-weight path).
+- Extended self-validation: 6 test cases total (3 GTM + 3 rationale). All pass.
+
+Work Log (Phase 7b — Theme System Expansion):
+- Created /home/z/my-project/frontend/lib/themes/index.ts — typed theme system.
+- Designed 6 themes spanning the light/dark spectrum, all preserving the
+  institutional mandate (Inter typography, platinum/gold accent discipline,
+  generous spacing, no Tailwind blue, no purple gradients):
+    1. Obsidian (dark, flagship) — original mandate, Bloomberg Terminal feel
+    2. Carbon Slate (dark) — deep blue-gray, McKinsey deck feel
+    3. Midnight Azure (dark) — deep navy, Goldman Sachs research note feel
+    4. Ivory Boardroom (light) — warm cream, Aldar/Emaar brochure feel
+    5. Pearl Mist (light) — cool pearl gray, BCG report cover feel
+    6. Platinum Light (light) — crisp white, Financial Times print feel
+- Each ThemeSpec carries 16-color palette (ground, surface, surfaceRaised,
+  border, borderStrong, textHeading, textBody, textMuted, accent, accentStrong,
+  gold, goldMuted, positive, negative, chartGrid, chartAxis) + name, tagline,
+  mode, isFlagship flag, and reference descriptor.
+- Implemented themeToCssVariables() generator — produces inline style object
+  that, when applied to a root wrapper, makes all child components theme-aware
+  via var(--xxx) references. Frontend will swap themes by changing the wrapper.
+- Implemented loadThemeId()/saveThemeId() persistence helpers — localStorage
+  with SSR-safe guards. Default theme is Obsidian (flagship) to preserve the
+  original mandate unless user explicitly switches.
+- Created /home/z/my-project/download/theme-atlas.html — standalone visual
+  preview showing all 6 themes side-by-side with realistic KPI tiles, scenario
+  matrix, and rationale block rendered in each palette. Validated: Inter font
+  loaded, gold accent present, no Tailwind blue, no purple gradients, 6 cards
+  render correctly.
+
+Stage Summary:
+- Phase 7a deliverable: backend/llm_narrator.py extended with
+  generate_pricing_rationale(). Public API now exports two narrator functions:
+    * generate_gtm_strategy(scenario_data_json, project_brief) -> str  (Phase 6)
+    * generate_pricing_rationale(pricing_json, comps_used) -> str       (Phase 7a)
+- Phase 7a anti-hallucination audit of Test 4 output — every cited figure traced:
+    * "8% view premium"         -> pricing_json.micro_view_modifier_pct = 8.0 ✅
+    * "Full Marina view"        -> pricing_json.view = "Full Marina" ✅
+    * "58 days absorption"      -> pricing_json.base_absorption_days_avg = 58.0 ✅
+    * "Optimal PSF 3799.72"     -> pricing_json.final_optimal_psf = 3799.72 ✅
+    * "16.64% combined adj"     -> pricing_json.combined_adjustment_pct = 16.64 ✅
+  Zero fabricated figures. Bifurcation contract holds for both narrator functions.
+- Phase 7a sample rationale output (Test 4, 2 sentences):
+    "The optimal price was chosen over the floor and ceiling because it balances
+    the 8% view premium for the Full Marina view with the market absorption rate
+    of 58 days (average from comparable units), ensuring competitive positioning
+    while maximizing value. The optimal PSF of 3799.72 reflects a 16.64% combined
+    adjustment from the base, which better aligns with market conditions than the
+    floor or ceiling extremes."
+- Phase 7b deliverables:
+    * frontend/lib/themes/index.ts — typed theme system, 6 themes, CSS-var generator,
+      localStorage persistence
+    * download/theme-atlas.html — visual preview of all 6 themes side-by-side
+- Phase 7b theme distribution: 3 dark (Obsidian flagship, Carbon Slate, Midnight
+  Azure) + 3 light (Ivory Boardroom, Pearl Mist, Platinum Light). Original mandate
+  preserved as flagship default; lighter options serve sunlit sales galleries,
+  mobile daytime usage, and accessibility preferences.
+- Contract integrity: LLM treated as NARRATOR ONLY in both functions. Theme system
+  preserves all original visual discipline (Inter, platinum/gold, no blue, no purple,
+  generous spacing) across all 6 palettes.
+- Engine + narrator fleet complete:
+    Phase 2: backend/pricing_engine.py        -> calculate_base_pricing()
+    Phase 3: backend/pricing_engine.py        -> apply_micro_adjustments()
+    Phase 4: backend/cashflow_sim.py          -> simulate_cashflow()
+    Phase 5: backend/scenario_engine.py       -> generate_scenarios()
+    Phase 6: backend/llm_narrator.py          -> generate_gtm_strategy()
+    Phase 7a: backend/llm_narrator.py         -> generate_pricing_rationale()
+    Phase 7b: frontend/lib/themes/index.ts    -> 6-theme system
+- Ready for Phase 8: FastAPI wrapper exposing all engines + both narrator
+  functions as endpoints, then Next.js 14 frontend consuming those endpoints
+  with the theme switcher wired into a React context provider.

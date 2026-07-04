@@ -33,6 +33,18 @@ If the LLM call fails (network, auth, timeout, empty response), the module
 returns a structured fallback string that explicitly states the LLM was
 unavailable and the UI must render [NARRATOR UNAVAILABLE]. The deterministic
 JSON payload is never altered to compensate.
+
+PHASE 7 — PRICING RATIONALE GENERATOR (generate_pricing_rationale):
+A second narrator function with a distinct persona (PropTech Data Scientist)
+and a distinct output contract (<=3 sentences, must cite absorption days and
+view premiums from the JSON). This satisfies the boardroom explainability
+requirement: every Optimal price must have a 2-3 sentence defense that a
+regulator or non-technical board member can read and trust.
+
+The same anti-hallucination contract applies: the LLM may quote figures from
+the pricing JSON and comps list verbatim. It may NOT recompute, estimate, or
+invent any number. If a cited figure cannot be traced to the JSON, the
+orchestration has failed.
 """
 
 from __future__ import annotations
@@ -64,6 +76,28 @@ DETERMINISTIC SCENARIO JSON (computed by the Python math engine — DO NOT recom
 {scenario_json}
 
 Write the 200-word GTM strategy now. Use ONLY the figures present in the JSON above. If a figure is missing from the JSON, do not invent one — omit that point instead."""
+
+# ---------------------------------------------------------------------------
+# Phase 7 — Pricing Rationale configuration
+# ---------------------------------------------------------------------------
+
+# Locked system prompt for the rationale narrator — per Phase 7 spec.
+# Distinct persona from the GTM narrator: PropTech Data Scientist, not McKinsey Partner.
+# Distinct output contract: <=3 sentences, must cite absorption days + view premiums.
+RATIONALE_SYSTEM_PROMPT = (
+    "You are a PropTech Data Scientist. Explain why the 'Optimal Price' was chosen "
+    "over the 'Floor' and 'Ceiling'. Cite the specific absorption days and view "
+    "premiums from the JSON. Keep it under 3 sentences."
+)
+
+# User-prompt template for the rationale. Same anti-hallucination clause.
+RATIONALE_USER_PROMPT_TEMPLATE = """PRICING JSON (computed by the Python pricing engine — DO NOT recompute, estimate, or invent any number; quote only from this payload):
+{pricing_json}
+
+COMPARABLES USED (the comps that informed the weighted base PSF — DO NOT invent comps or stats not present here):
+{comps_used_json}
+
+Explain why the Optimal Price was chosen over the Floor and Ceiling. You MUST cite at least one absorption_days figure and at least one view/floor premium figure from the JSON above. Maximum 3 sentences. If a required figure is missing from the JSON, omit that citation rather than inventing one."""
 
 # CLI invocation — capture JSON output to a temp file for parse safety.
 CLI_BINARY = "z-ai"
@@ -249,6 +283,79 @@ def generate_gtm_strategy(
     return narrative
 
 
+def _fallback_rationale(pricing_json: Dict[str, Any], comps_used: list) -> str:
+    """
+    Structured fallback for the rationale narrator. Same discipline as the GTM
+    fallback: never invents prose, preserves the raw JSON for UI display.
+    """
+    return (
+        "[NARRATOR UNAVAILABLE]\n\n"
+        "The Pricing Rationale Narrator could not be reached. The deterministic "
+        "pricing JSON and comps list below remain valid and have not been altered.\n\n"
+        f"Pricing JSON (raw):\n{json.dumps(pricing_json, indent=2, ensure_ascii=False)}\n\n"
+        f"Comps used: {comps_used}"
+    )
+
+
+def generate_pricing_rationale(
+    pricing_json: Dict[str, Any],
+    comps_used: list,
+) -> str:
+    """
+    Generate a <=3-sentence pricing rationale defending the Optimal price choice
+    over the Floor and Ceiling alternatives.
+
+    Satisfies the boardroom/regulatory explainability requirement: every Optimal
+    price must have a 2-3 sentence defense citing specific absorption days and
+    view/floor premiums from the JSON. A non-technical board member should be
+    able to read it and trust the number.
+
+    Args:
+        pricing_json: The Phase 2/3 pricing payload (must contain floor_psf,
+            optimal_psf, ceiling_psf, and ideally the audit-trail fields like
+            comps_used, base_absorption_days, micro_view_modifier_pct, etc.).
+            Treated as READ-ONLY context.
+        comps_used: The list of comp_ids (and optionally full comp objects) that
+            informed the weighted base PSF. Passed to the LLM so it can cite
+            specific comps' absorption days and view premiums. If only comp_ids
+            are passed, the LLM is instructed to cite from the pricing_json's
+            audit fields instead.
+
+    Returns:
+        str: The LLM-generated rationale (<=3 sentences). On any LLM failure,
+        returns a structured fallback string starting with [NARRATOR UNAVAILABLE]
+        that preserves the raw pricing JSON and comps list for the UI to display.
+
+    The function NEVER raises — always returns a string. Same resilience contract
+    as generate_gtm_strategy().
+    """
+    # --- Validate inputs (defensive) --------------------------------------------
+    if not isinstance(pricing_json, dict) or not pricing_json:
+        return (
+            "[NARRATOR UNAVAILABLE]\n\n"
+            "pricing_json is empty or not a dict. Cannot generate rationale."
+        )
+    if not isinstance(comps_used, list):
+        # Coerce non-list inputs to a single-element list rather than failing.
+        comps_used = [comps_used] if comps_used else []
+
+    # --- Build the user prompt --------------------------------------------------
+    pretty_pricing = json.dumps(pricing_json, indent=2, ensure_ascii=False)
+    pretty_comps = json.dumps(comps_used, indent=2, ensure_ascii=False, default=str)
+    user_prompt = RATIONALE_USER_PROMPT_TEMPLATE.format(
+        pricing_json=pretty_pricing,
+        comps_used_json=pretty_comps,
+    )
+
+    # --- Invoke the LLM ---------------------------------------------------------
+    rationale = _call_llm_cli(RATIONALE_SYSTEM_PROMPT, user_prompt)
+
+    if rationale is None:
+        return _fallback_rationale(pricing_json, comps_used)
+
+    return rationale
+
+
 # ---------------------------------------------------------------------------
 # Standalone self-validation
 #   Run:  python backend/llm_narrator.py
@@ -348,6 +455,105 @@ if __name__ == "__main__":
     briefless = generate_gtm_strategy(mock_scenario_payload, "")
     # Should not raise; should either call LLM with placeholder brief or fall back.
     print(f"Result starts with: {briefless[:120]}...")
+
+    # =========================================================================
+    # PHASE 7 — Pricing Rationale validation
+    # =========================================================================
+    print("\n" + "=" * 78)
+    print("--- PHASE 7: generate_pricing_rationale ---")
+    print("=" * 78)
+
+    # Mock pricing JSON — mirrors a Phase 3 micro-adjusted payload (Floor 80
+    # Full Marina penthouse, 2BR Sea Emaar base).
+    mock_pricing_json = {
+        "unit_type": "2BR",
+        "view": "Full Marina",
+        "floor": 80,
+        "final_floor_psf": 3541.49,
+        "final_optimal_psf": 3799.72,
+        "final_ceiling_psf": 4131.74,
+        "estimated_unit_price": 9119328.0,
+        "floor_premium_pct": 8.0,
+        "micro_view_modifier_pct": 8.0,
+        "combined_adjustment_pct": 16.64,
+        "base_data_confidence": "Medium",
+        "base_optimal_psf": 3257.65,
+        "base_floor_psf": 3036.26,
+        "base_ceiling_psf": 3542.30,
+        "base_absorption_days_avg": 58.0,
+        "comps_used": ["CV-003", "CV-004", "CV-006"],
+    }
+
+    # Mock comps list — full comp objects so the LLM can cite specific
+    # absorption days and view/floor premiums per comp.
+    mock_comps_used = [
+        {
+            "comp_id": "CV-003",
+            "project": "Emaar Beachfront - Beach Hill",
+            "developer": "Emaar Properties",
+            "unit_type": "2BR",
+            "view": "Sea",
+            "floor_premium_pct": 2.0,
+            "base_psf": 3050,
+            "amenity_score": 9,
+            "payment_plan": "70/30",
+            "absorption_days_50pct": 48,
+            "avg_discount_off_asking": 3.0,
+        },
+        {
+            "comp_id": "CV-004",
+            "project": "Bluewaters Residences",
+            "developer": "Meraas",
+            "unit_type": "2BR",
+            "view": "Sea",
+            "floor_premium_pct": 1.8,
+            "base_psf": 2850,
+            "amenity_score": 8,
+            "payment_plan": "60/40",
+            "absorption_days_50pct": 58,
+            "avg_discount_off_asking": 4.5,
+        },
+        {
+            "comp_id": "CV-006",
+            "project": "Muraba Residences",
+            "developer": "Muraba",
+            "unit_type": "2BR",
+            "view": "Sea",
+            "floor_premium_pct": 2.5,
+            "base_psf": 3100,
+            "amenity_score": 9,
+            "payment_plan": "50/50",
+            "absorption_days_50pct": 88,
+            "avg_discount_off_asking": 5.0,
+        },
+    ]
+
+    print("\n--- Test 4: Full pricing payload + comps, real LLM call ---")
+    print(f"System prompt (locked):\n  {RATIONALE_SYSTEM_PROMPT}\n")
+    print(f"Pricing JSON keys: {list(mock_pricing_json.keys())}")
+    print(f"Comps passed: {[c['comp_id'] for c in mock_comps_used]}\n")
+    print("Invoking LLM...")
+    rationale = generate_pricing_rationale(mock_pricing_json, mock_comps_used)
+    print("\n--- LLM RATIONALE OUTPUT ---\n")
+    print(rationale)
+    print("\n--- END RATIONALE ---\n")
+
+    # --- Sentence count check (advisory; spec says <=3) ------------------------
+    # Naive sentence split on . ! ?
+    import re as _re
+    sentences = [s for s in _re.split(r'(?<=[.!?])\s+', rationale.strip()) if s]
+    print(f"Sentence count: {len(sentences)} (target <=3)")
+
+    # --- Test 5: Empty pricing JSON (defensive guard) --------------------------
+    print("\n--- Test 5: Empty pricing JSON (defensive guard) ---")
+    empty_rationale = generate_pricing_rationale({}, mock_comps_used)
+    print(empty_rationale[:200] + ("..." if len(empty_rationale) > 200 else ""))
+
+    # --- Test 6: Comps as bare comp_ids (not full objects) ---------------------
+    print("\n--- Test 6: Comps as bare comp_ids (lighter-weight path) ---")
+    bare_ids = ["CV-003", "CV-004", "CV-006"]
+    rationale_bare = generate_pricing_rationale(mock_pricing_json, bare_ids)
+    print(f"Result starts with: {rationale_bare[:200]}...")
 
     print("\n" + "=" * 78)
     print("VALIDATION COMPLETE — LLM treated as narrator only.")
