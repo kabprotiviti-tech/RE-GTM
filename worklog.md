@@ -514,3 +514,81 @@ Stage Summary:
 - Contract integrity: All math is deterministic TypeScript (ported from Python).
   LLM receives JSON read-only and writes prose only. Anti-hallucination protocol
   enforced in both /api/gtm and /api/rationale prompts.
+
+---
+Task ID: 9
+Agent: Lead Architect (main)
+Task: Create backend/main.py (FastAPI orchestration layer). Single POST endpoint
+/api/run-launch-analysis that sequentially calls all 6 engine stages and returns
+one massive structured JSON response.
+
+Work Log:
+- Verified all 4 Python engines importable from backend/ directory.
+- Verified FastAPI 0.128.0, uvicorn 0.44.0, pydantic 2.12.5 all available.
+- Created backend/main.py with:
+    * Pydantic-validated LaunchAnalysisRequest (12 fields: unit_type, view,
+      floor_number, sqft, developer, developer_tier, payment_plan, timeline_months,
+      unit_count, avg_sqft_per_unit, daily_carry_cost_aed, project_brief)
+    * Pydantic-validated LaunchAnalysisResponse (8 top-level fields: request_echo,
+      pricing, scenarios, cashflow, gtm_strategy, pricing_rationale, comps_used,
+      metadata)
+    * CORS middleware (allow all origins for dev; tighten in production)
+    * GET /health liveness probe
+    * POST /api/run-launch-analysis — the main orchestration endpoint
+- Implemented 6-stage sequential pipeline with per-stage try/except:
+    Stage 1: calculate_base_pricing       (deterministic, 5.4ms)
+    Stage 2: apply_micro_adjustments       (deterministic, 0.01ms)
+    Stage 3: generate_scenarios            (deterministic, 0.09ms)
+    Stage 4: simulate_cashflow             (deterministic, 0.20ms)
+    Stage 5: generate_gtm_strategy         (LLM, ~2884ms)
+    Stage 6: generate_pricing_rationale    (LLM, ~1985ms)
+- Error handling contract:
+    * Stages 1-4 (deterministic): if any fails, return 422 with structured error
+      identifying which stage failed and why. Frontend never receives partial math.
+    * Stages 5-6 (LLM): if either fails, return 200 with [NARRATOR UNAVAILABLE]
+      fallback string. Deterministic JSON remains valid and displayable.
+- Built _micro_to_macro_view() helper — maps micro view (Full Marina, Internal,
+  etc.) to macro corridor (Marina, Sea, City) for the comp filter. Mirrors the
+  TypeScript microToMacroView() in the frontend.
+- Built _load_comps_for_audit() helper — loads full comp objects matching the
+  macro filter for the audit trail. Passed to the rationale narrator so the LLM
+  can cite specific comps' absorption days and view premiums.
+- Response includes per-stage execution metadata:
+    * stages[]: per-stage name, duration_ms, success, error
+    * total_duration_ms
+    * all_deterministic_stages_succeeded (bool)
+    * llm_stages_succeeded: { gtm_strategy: bool, pricing_rationale: bool }
+    * timestamp (ISO 8601 UTC)
+    * engine_versions: all 1.0.0
+- Validated end-to-end with 2BR Full Marina Floor 80 2400sqft Emaar payload:
+    * HTTP 200 in 4.88s total (deterministic: 5.7ms, LLM: 4869ms)
+    * Response size: 10.3KB
+    * All 8 top-level keys present
+    * All 6 stages succeeded (deterministic + LLM)
+    * GTM narrative: 137 words, every number traces to JSON
+    * Rationale: 288 chars, every number traces to JSON
+    * Cashflow array: 37 monthly entries, final cumulative = unit price exactly
+    * Scenarios: 3-tier matrix with revenue/carry/net for each
+    * Comps audit trail: CV-007 (Marina Gate II) with full comp object
+- Anti-hallucination audit of LLM outputs — every figure traced:
+    GTM: 60/40 plan, 8% floor premium, Full Marina, Floor 80, 16.64% combined,
+         36-month build, AED 3,510.01/3,342.87/3,242.58 PSF, AED 401,144.4
+         Month 0, 72-day/57.6-day absorption, AED 2,880,000 carry — ALL TRACED ✅
+    Rationale: AED 3,342.87/3,115.69/3,634.97 PSF, 72-day absorption, CV-007,
+               8% view premium — ALL TRACED ✅
+  Zero fabricated figures. Bifurcation contract holds across the full pipeline.
+
+Stage Summary:
+- Orchestrator file: backend/main.py
+- Endpoint: POST /api/run-launch-analysis
+- Request: LaunchAnalysisRequest (12 Pydantic-validated fields)
+- Response: LaunchAnalysisResponse (8 top-level keys, ~10KB JSON)
+- Pipeline: 6 sequential stages, 4 deterministic + 2 LLM
+- Performance: ~4.9s total (deterministic <6ms, LLM ~4.9s)
+- Resilience: deterministic failures → 422; LLM failures → 200 with fallback
+- Audit trail: request_echo + comps_used + per-stage metadata in every response
+- Standalone run: python backend/main.py [port] (defaults to 8000)
+- Docs: /docs (Swagger UI), /redoc (ReDoc)
+- The frontend can now hit a single endpoint and get everything in one call.
+  No more 5 separate API round-trips — the orchestrator handles the full
+  pipeline server-side and returns one massive, beautifully structured JSON.
