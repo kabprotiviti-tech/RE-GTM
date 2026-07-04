@@ -122,3 +122,56 @@ Stage Summary:
   read-only. All outputs traceable to comp_ids + floor_number + view + sqft inputs.
 - Ready for Phase 4: FastAPI wrapper (POST /api/pricing/standard, POST /api/pricing/micro)
   exposing both functions, then LLM Strategy Narrator consuming only the final JSON.
+
+---
+Task ID: 4
+Agent: Lead Architect (main)
+Task: Create backend/cashflow_sim.py with simulate_cashflow(unit_price, payment_plan,
+timeline_months). Map payment plan into monthly cash inflows (5% downpayment month 0,
+even spread of remaining construction % over timeline, handover balloon at final month).
+Return JSON array of { month, cumulative_cash_collected } for frontend charting.
+
+Work Log:
+- Created /home/z/my-project/backend/cashflow_sim.py — pure Python + NumPy, zero LLM.
+- Implemented _parse_payment_plan(): validates 'X/Y' format, enforces X+Y==100 within
+  tolerance, enforces construction_pct >= downpayment_pct (5%). Centralized parser
+  guarantees no other code path can invent its own plan interpretation.
+- Implemented simulate_cashflow() with three-phase cash architecture:
+    Phase 1: Month 0 downpayment (5% of unit_price, fixed industry convention)
+    Phase 2: Months 1..N — even spread of (construction_pct - 5%) across timeline
+    Phase 3: Month N — handover balloon (handover_pct) added to that month's spread
+- Used numpy cumsum for the cumulative curve — deterministic, vectorized, auditable.
+- Output array entries carry 6 fields (2 required + 4 bonus for richer charting):
+    month, cumulative_cash_collected (required), monthly_cash_collected,
+    cumulative_pct, monthly_pct, event (annotation label for chart tooltips)
+- Added summarize_cashflow() — pure extraction (no math) producing a boardroom-grade
+  summary dict: month_0_collected, mid_build_collected, handover_collected, totals.
+  Designed for direct LLM narrator consumption without recomputation.
+- Validation guarantees: final cumulative_cash_collected == unit_price (within 1 AED
+  rounding). All 5 valid test cases achieve delta = 0.00 AED.
+- Edge cases handled explicitly:
+    * Invalid plan format ('60-40') -> ValueError
+    * Plan not summing to 100 ('60/30') -> ValueError
+    * Zero/negative timeline -> ValueError
+    * Non-numeric unit_price -> ValueError
+    * Construction portion < 5% downpayment -> ValueError
+- Self-validation: 8 test cases (5 valid + 3 edge). All pass.
+
+Stage Summary:
+- Engine file: /home/z/my-project/backend/cashflow_sim.py
+- Public API:
+    * simulate_cashflow(unit_price, payment_plan, timeline_months) -> array
+    * summarize_cashflow(cashflow_array) -> summary dict (LLM-ready)
+- Validated plan comparison (same AED 1M unit, 36-month build):
+    Plan 50/50: Month 18 cumulative AED 275,000 (27.50%) | Handover AED 512,500 (51.25%)
+    Plan 60/40: Month 18 cumulative AED 325,000 (32.50%) | Handover AED 415,278 (41.53%)
+    Plan 70/30: Month 18 cumulative AED 375,000 (37.50%) | Handover AED 318,056 (31.81%)
+- Strategic signal unlocked: on a single AED 1M unit, the 70/30 plan puts AED 100,000
+  more cash in the developer's bank at month 18 vs the 50/50 plan. On a 200-unit tower,
+  that is AED 20M of incremental working capital at mid-build — directly funds
+  construction without bridge financing, materially lifts project IRR.
+- Contract integrity: NO LLM invoked. NO external calls. All outputs traceable to
+  unit_price + payment_plan + timeline_months inputs. Final cumulative reconciles
+  to unit_price exactly (delta = 0.00 AED across all test cases).
+- Ready for Phase 5: FastAPI wrapper exposing /api/cashflow endpoint, OR direct
+  integration with Phase 4 pricing output (estimated_unit_price feeds cashflow).
