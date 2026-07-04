@@ -238,3 +238,84 @@ Stage Summary:
   optimal_psf + base_absorption_days + (optional) project-level inputs.
 - Ready for Phase 6: FastAPI wrapper exposing all four engines as endpoints, then
   LLM Strategy Narrator consuming only the final JSON outputs.
+
+---
+Task ID: 6
+Agent: Lead Architect (main)
+Task: Create backend/llm_narrator.py with generate_gtm_strategy(scenario_data_json,
+project_brief). LLM call (OpenAI-compatible) with locked McKinsey system prompt.
+LLM is NARRATOR ONLY — receives final JSON read-only, writes 200-word GTM strategy.
+Cover: 1) Buyer Persona, 2) Positioning, 3) Launch Phasing.
+
+Work Log:
+- Loaded the LLM skill to confirm available OpenAI-compatible endpoint.
+- Verified z-ai CLI is available at /usr/local/bin/z-ai with chat command supporting
+  --system, --prompt, --output flags. Used CLI (not raw SDK) for portability — no
+  API key handling in Python, SDK manages auth internally.
+- Created /home/z/my-project/backend/llm_narrator.py.
+- Locked the system prompt verbatim per Phase 6 spec:
+    "You are a Senior Partner at McKinsey. You are presenting to the CEO of Emaar.
+     Using ONLY the provided scenario JSON data, write a 200-word GTM strategy.
+     Cover: 1) Target Buyer Persona (Investor vs End-User based on payment plans),
+     2) Positioning Statement, 3) Launch Phasing strategy to maximize early cash flow.
+     Tone: Authoritative, concise, zero fluff."
+- Built USER_PROMPT_TEMPLATE that wraps the JSON payload + project brief with an
+  explicit anti-hallucination clause: "DO NOT recompute, estimate, or invent any
+  number; quote only from this payload. If a figure is missing, omit that point."
+- Implemented _call_llm_cli(): subprocess invocation of `z-ai chat` with --system,
+  --prompt, --output to a temp JSON file. Defensive parsing handles multiple
+  envelope shapes ({choices:[{message:{content}}]}, {content}, {response}).
+  60-second timeout. Returns None on any failure (network, auth, empty, malformed).
+- Implemented _fallback_narrative(): returns "[NARRATOR UNAVAILABLE]" string
+  preserving the raw JSON verbatim. NEVER invents prose. NEVER mutates the payload.
+  Lets the UI display the deterministic numbers even when the LLM is down.
+- Implemented generate_gtm_strategy(): the public entry point. Validates inputs
+  defensively, builds prompt, calls LLM, returns narrative or fallback string.
+  NEVER raises — always returns a string so the FastAPI layer returns 200 with
+  fallback rather than 500.
+- Self-validation: 3 test cases.
+    Test 1: Full mock payload (Phase 5 CEO "Aha!" demo data) + real project brief
+            -> Real LLM call executed successfully.
+    Test 2: Empty payload -> defensive guard returns [NARRATOR UNAVAILABLE]
+    Test 3: Empty project brief -> placeholder substitution, LLM call still succeeds.
+
+Stage Summary:
+- Engine file: /home/z/my-project/backend/llm_narrator.py
+- Public API: generate_gtm_strategy(scenario_data_json, project_brief) -> str
+- LLM endpoint: z-ai CLI (OpenAI-compatible, GLM-4 class model)
+- Anti-hallucination audit of Test 1 output — every number traced to JSON:
+    * "AED 9.11M per unit"          -> pricing.estimated_unit_price = 9,119,328 ✅
+    * "AED 3,421 psf"               -> scenarios[0].price_psf = 3,420.53 ✅
+    * "AED 50,000 at month 0"       -> cashflow.month_0_collected = 50,000 ✅
+    * "72.5-day absorption"         -> scenarios[0].projected_absorption_days = 72.5 ✅
+    * "AED 1.26B total revenue"     -> scenarios[0].total_revenue_assumption = 1.266B ✅
+    * "AED 3.6M carry cost"         -> scenarios[0].total_carry_cost = 3.625M ✅
+    * "60% payment upfront"         -> cashflow.payment_plan = "60/40" ✅
+    * "Floor 80"                    -> pricing.floor = 80 ✅
+  Zero fabricated figures. Bifurcation contract holds.
+- Sample narrative output (Test 1, ~139 words):
+    "Target Buyer Persona: Dual approach targeting investors seeking value
+    appreciation and end-users desiring premium Marina views. The 60/40 payment
+    plan caters to investors seeking cash flow flexibility, while the high-floor
+    Marina units appeal to end-users prioritizing lifestyle and location.
+    Positioning Statement: 'The pinnacle of Dubai Marina living—exclusively
+    positioned on Floor 80, offering unmatched views and Emaar's signature quality
+    at AED 9.11M per unit.'
+    Launch Phasing Strategy: Initiate with the Aggressive scenario (AED 3,421 psf)
+    to maximize early cash flow. Collect AED 50,000 at month 0 from serious buyers,
+    targeting a 72.5-day absorption period. This approach optimizes total revenue
+    at AED 1.26B while minimizing carry costs to AED 3.6M. The reference penthouse
+    should launch first to establish prestige, followed by tiered releases to
+    maintain momentum. Prioritize investor sales to secure 60% payment upfront,
+    ensuring immediate capital deployment into the project."
+- Contract integrity: LLM treated as NARRATOR ONLY. No number in the output
+  fails the traceability audit. Fallback path preserves deterministic JSON when
+  LLM is unavailable. Module never raises — always returns a string.
+- Engine fleet complete:
+    Phase 2: backend/pricing_engine.py        -> calculate_base_pricing()
+    Phase 3: backend/pricing_engine.py        -> apply_micro_adjustments()
+    Phase 4: backend/cashflow_sim.py          -> simulate_cashflow()
+    Phase 5: backend/scenario_engine.py       -> generate_scenarios()
+    Phase 6: backend/llm_narrator.py          -> generate_gtm_strategy()
+- Ready for Phase 7: FastAPI wrapper exposing the full pipeline as endpoints,
+  then Next.js 14 frontend in Obsidian dark mode consuming those endpoints.
