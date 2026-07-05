@@ -662,3 +662,53 @@ Stage Summary:
   /api/gtm and /api/rationale for LLM narration
 - Visual hierarchy: header (57px) > left input form (sticky) > right panels (stacked)
 - The layout now feels like a $500k command center, not a scrolling webpage.
+
+---
+Task ID: 11
+Agent: Lead Architect (main)
+Task: Populate the Pricing Matrix panel with large bold PSF numbers, a confidence
+indicator bar (green/yellow/red), and italicized gray rationale text.
+
+Work Log:
+- Created src/components/capital-velocity/ConfidenceIndicator.tsx:
+    * Horizontal bar component with 4 levels: High (green, 100%), Medium (gold,
+      60%), Low (red, 30%), None (gray, 0%)
+    * Animated width via Framer Motion (expo-out, 0.8s)
+    * Color-coded badge with level label + comp count
+    * Italic description: "Boardroom-grade — 5+ comparables" / "Directional
+      signal — 3-4 comparables" / "Statistical noise — fewer than 3" / "No
+      comparables matched"
+- Enhanced the Pricing Matrix panel in page.tsx:
+    * PSF numbers enlarged: text-xl → text-3xl, font-semibold → font-bold,
+      tracking-tight, leading-none, explicit Inter font-family
+    * Tier tile padding increased: p-4 → p-5
+    * Tier descriptions expanded: "Clearance" → "Defensive clearance", etc.
+    * Optimal border-left-width: 2 → 3 (more prominent gold accent)
+    * Floor tier color changed from text-muted to text-body (more readable)
+- Added ConfidenceIndicator between tier tiles and estimated price row:
+    * Wrapped in bordered card (p-4, rounded-lg)
+    * Reads basePricing.data_confidence + basePricing.comp_count
+    * Bar animates color + width on every recompute
+- Restyled pricing rationale per Phase 10 spec:
+    * text-xs italic leading-relaxed (was non-italic)
+    * Wrapped in div with color: var(--text-body) for gray text
+    * Loading skeleton increased to 3 lines (was 2)
+    * Empty state also italic: "Adjust parameters to generate rationale."
+- Lint: clean (0 errors, 0 warnings)
+- Browser-verified via agent-browser + VLM:
+    * Large bold PSF numbers confirmed
+    * Confidence bar visible — red (Low) for 2BR Full Marina (1 comp, CV-007)
+    * Confidence bar yellow (Medium) after switching to 2BR Sea (3 comps:
+      CV-003, CV-004, CV-006) — dynamic color change confirmed
+    * Italicized gray rationale text visible below the numbers
+
+Stage Summary:
+- New component: src/components/capital-velocity/ConfidenceIndicator.tsx
+- Enhanced panel: Pricing Matrix in src/app/page.tsx
+- Spec compliance:
+    ✅ Floor/Optimal/Ceiling PSF in large bold Inter font (text-3xl font-bold)
+    ✅ Confidence indicator bar (green=High, yellow=Medium, red=Low)
+    ✅ Rationale in italicized, slightly smaller gray text (text-xs italic)
+- Dynamic behavior: confidence bar color + width updates instantly when the
+  unit spec changes (view, unit type) — reflects the live comp count from the
+  deterministic pricing engine.

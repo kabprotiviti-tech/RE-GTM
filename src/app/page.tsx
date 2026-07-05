@@ -21,6 +21,7 @@ import { Typewriter } from "@/components/capital-velocity/Typewriter";
 import { FloorPicker } from "@/components/capital-velocity/FloorPicker";
 import { ScenarioChart } from "@/components/capital-velocity/ScenarioChart";
 import { CashflowChart } from "@/components/capital-velocity/CashflowChart";
+import { ConfidenceIndicator } from "@/components/capital-velocity/ConfidenceIndicator";
 import {
   calculateBasePricing,
   applyMicroAdjustments,
@@ -321,35 +322,69 @@ export default function Home() {
             subtitle="Three-tier deterministic architecture · Floor / Optimal / Ceiling"
             hasData={hasData}
           >
-            {/* Tier tiles */}
+            {/* Tier tiles — large bold PSF numbers */}
             <div className="grid grid-cols-3 gap-4 mb-5">
               {[
-                { name: "Floor", val: microPricing.final_floor_psf, mult: "× 0.96", desc: "Clearance", color: "var(--text-muted)" },
-                { name: "Optimal", val: microPricing.final_optimal_psf, mult: "× 1.03", desc: "Target", color: "var(--gold)" },
-                { name: "Ceiling", val: microPricing.final_ceiling_psf, mult: "× 1.12", desc: "Headroom", color: "var(--accent)" },
+                { name: "Floor", val: microPricing.final_floor_psf, mult: "× 0.96", desc: "Defensive clearance", color: "var(--text-body)" },
+                { name: "Optimal", val: microPricing.final_optimal_psf, mult: "× 1.03", desc: "Target realized price", color: "var(--gold)" },
+                { name: "Ceiling", val: microPricing.final_ceiling_psf, mult: "× 1.12", desc: "Negotiation headroom", color: "var(--accent)" },
               ].map((t, i) => (
                 <motion.div
                   key={t.name}
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.08, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-                  className="p-4 rounded-lg border"
-                  style={{ background: "var(--surface)", borderColor: t.name === "Optimal" ? "var(--gold)" : "var(--border)", borderLeftWidth: t.name === "Optimal" ? 2 : 1 }}
+                  className="p-5 rounded-lg border"
+                  style={{
+                    background: "var(--surface)",
+                    borderColor: t.name === "Optimal" ? "var(--gold)" : "var(--border)",
+                    borderLeftWidth: t.name === "Optimal" ? 3 : 1,
+                  }}
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: t.color }}>{t.name}</span>
-                    <span className="text-[8px] font-mono" style={{ color: "var(--text-muted)" }}>{t.mult}</span>
+                  <div className="flex items-center justify-between mb-3">
+                    <span
+                      className="text-[10px] font-semibold uppercase tracking-[0.15em]"
+                      style={{ color: t.color }}
+                    >
+                      {t.name}
+                    </span>
+                    <span className="text-[9px] font-mono" style={{ color: "var(--text-muted)" }}>
+                      {t.mult}
+                    </span>
                   </div>
-                  <div className="text-xl font-semibold" style={{ color: t.color }}>
-                    {t.val != null ? <AnimatedCounter value={t.val} format="psf" duration={0.9} /> : <span style={{ color: "var(--text-muted)" }}>[MISSING]</span>}
+                  {/* Large bold PSF number — Inter, text-3xl, font-bold */}
+                  <div
+                    className="text-3xl font-bold tracking-tight leading-none mb-2"
+                    style={{ color: t.color, fontFamily: "var(--font-inter), sans-serif" }}
+                  >
+                    {t.val != null ? (
+                      <AnimatedCounter value={t.val} format="psf" duration={1.1} />
+                    ) : (
+                      <span className="text-lg" style={{ color: "var(--text-muted)" }}>
+                        [DATA MISSING]
+                      </span>
+                    )}
                   </div>
-                  <div className="text-[9px] mt-1" style={{ color: "var(--text-muted)" }}>{t.desc}</div>
+                  <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                    {t.desc}
+                  </div>
                 </motion.div>
               ))}
             </div>
 
+            {/* Confidence Indicator — horizontal bar, green/yellow/red */}
+            <div
+              className="p-4 rounded-lg border mb-4"
+              style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+            >
+              <ConfidenceIndicator
+                level={basePricing.data_confidence}
+                compCount={basePricing.comp_count}
+              />
+            </div>
+
             {/* Estimated unit price + adjustments */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4 mb-4">
               <div className="p-4 rounded-lg border" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
                 <div className="text-[9px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
                   Estimated Unit Price
@@ -366,27 +401,56 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Pricing rationale (inline) */}
-            <div className="mt-4 p-4 rounded-lg border-l-2" style={{ background: "var(--surface)", borderColor: "var(--border)", borderLeftColor: "var(--gold)" }}>
+            {/* Pricing rationale — italicized gray text per Phase 10 spec */}
+            <div
+              className="p-4 rounded-lg border-l-2"
+              style={{
+                background: "var(--surface)",
+                borderColor: "var(--border)",
+                borderLeftColor: "var(--gold)",
+              }}
+            >
               <div className="flex items-center justify-between mb-2">
-                <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: "var(--gold)" }}>
+                <span
+                  className="text-[9px] font-semibold uppercase tracking-[0.15em]"
+                  style={{ color: "var(--gold)" }}
+                >
                   Pricing Rationale · PropTech Data Scientist
                 </span>
-                <button onClick={fetchRationale} disabled={rationaleLoading}
-                  className="text-[9px] px-2 py-0.5 rounded disabled:opacity-50"
-                  style={{ background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
-                  {rationaleLoading ? "..." : "↻"}
+                <button
+                  onClick={fetchRationale}
+                  disabled={rationaleLoading}
+                  className="text-[9px] px-2 py-0.5 rounded disabled:opacity-50 transition-colors"
+                  style={{
+                    background: "var(--surface-raised)",
+                    border: "1px solid var(--border)",
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  {rationaleLoading ? "Generating..." : "Regenerate"}
                 </button>
               </div>
               {rationaleLoading && !rationale ? (
                 <div className="space-y-1.5">
                   <div className="h-2.5 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: "92%" }} />
                   <div className="h-2.5 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: "78%" }} />
+                  <div className="h-2.5 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: "85%" }} />
                 </div>
               ) : rationale ? (
-                <Typewriter text={rationale} speed={18} className="text-xs leading-relaxed" />
+                <div style={{ color: "var(--text-body)" }}>
+                  <Typewriter
+                    text={rationale}
+                    speed={18}
+                    className="text-xs italic leading-relaxed"
+                  />
+                </div>
               ) : (
-                <div className="text-xs" style={{ color: "var(--text-muted)" }}>Adjust parameters to generate rationale.</div>
+                <div
+                  className="text-xs italic"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Adjust parameters to generate rationale.
+                </div>
               )}
             </div>
           </Panel>
