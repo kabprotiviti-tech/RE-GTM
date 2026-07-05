@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   Building2,
   TrendingUp,
@@ -9,9 +9,10 @@ import {
   Brain,
   Layers,
   Sparkles,
-  ChevronRight,
   Activity,
   Calculator,
+  Lock,
+  ChevronRight,
 } from "lucide-react";
 import { THEMES, themeToCssVariables, loadThemeId, saveThemeId, type ThemeId } from "@/lib/themes";
 import { ThemeSwitcher } from "@/components/capital-velocity/ThemeSwitcher";
@@ -29,155 +30,95 @@ import { simulateCashflow, summarizeCashflow } from "@/lib/engines/cashflow-sim"
 import { generateScenarios, summarizeScenarios } from "@/lib/engines/scenario-engine";
 import { MOCK_COMPS } from "@/lib/engines/mock-data";
 
-interface PricingResponse {
-  base: any;
-  micro: any;
-  macro_view: string;
-}
-
-interface CashflowResponse {
-  cashflow: any[];
-  summary: any;
-}
-
-interface ScenariosResponse {
-  scenarios: any[];
-  summary: any;
-}
-
 export default function Home() {
-  // --- Theme state -----------------------------------------------------------
+  // --- Theme -----------------------------------------------------------------
   const [themeId, setThemeId] = useState<ThemeId>("obsidian");
-
   const applyTheme = useCallback((id: ThemeId) => {
     const t = THEMES[id];
     const vars = themeToCssVariables(t);
     const root = document.documentElement;
-    Object.entries(vars).forEach(([k, v]) => {
-      root.style.setProperty(k, v as string);
-    });
+    Object.entries(vars).forEach(([k, v]) => root.style.setProperty(k, v as string));
     root.style.background = t.palette.ground;
     root.style.color = t.palette.textBody;
-    // Override body background too — shadcn sets bg-background on <body>
     document.body.style.background = t.palette.ground;
     document.body.style.color = t.palette.textBody;
   }, []);
-
   useEffect(() => {
     const saved = loadThemeId();
     setThemeId(saved);
     applyTheme(saved);
   }, [applyTheme]);
-
   const handleThemeChange = (id: ThemeId) => {
     setThemeId(id);
     saveThemeId(id);
     applyTheme(id);
   };
-  const theme = THEMES[themeId];
 
-  // --- Input spec state ------------------------------------------------------
+  // --- Input spec ------------------------------------------------------------
+  const [projectName, setProjectName] = useState("Marina Gate IV — Reference Tower");
   const [unitType, setUnitType] = useState<"1BR" | "2BR" | "3BR">("2BR");
-  const [microView, setMicroView] = useState<string>("Full Marina");
-  const [floor, setFloor] = useState<number>(80);
-  const [sqft, setSqft] = useState<number>(2400);
-  const [developer, setDeveloper] = useState<string>("Emaar Properties");
-  const [paymentPlan, setPaymentPlan] = useState<string>("60/40");
-  const [timelineMonths, setTimelineMonths] = useState<number>(36);
+  const [microView, setMicroView] = useState("Full Marina");
+  const [floor, setFloor] = useState(80);
+  const [sqft, setSqft] = useState(2400);
+  const [developer, setDeveloper] = useState("Emaar Properties");
+  const [paymentPlan, setPaymentPlan] = useState("60/40");
+  const [timelineMonths, setTimelineMonths] = useState(36);
+  const [unitCount, setUnitCount] = useState(200);
 
-  // --- Computed engine outputs (client-side, deterministic) -------------------
+  // --- Deterministic engine outputs ------------------------------------------
   const macroView = microToMacroView(microView);
   const basePricing = useMemo(
-    () =>
-      calculateBasePricing({
-        unit_type: unitType,
-        view: macroView,
-        developer,
-      }),
+    () => calculateBasePricing({ unit_type: unitType, view: macroView, developer }),
     [unitType, macroView, developer]
   );
   const microPricing = useMemo(
-    () =>
-      applyMicroAdjustments(basePricing, {
-        unit_type: unitType,
-        view: microView,
-        floor_number: floor,
-        sqft,
-      }),
+    () => applyMicroAdjustments(basePricing, { unit_type: unitType, view: microView, floor_number: floor, sqft }),
     [basePricing, unitType, microView, floor, sqft]
   );
-
-  // Comps used for the rationale narrator
   const compsUsed = useMemo(
-    () =>
-      MOCK_COMPS.filter(
-        (c) => c.unit_type === unitType && c.view === macroView
-      ),
+    () => MOCK_COMPS.filter((c) => c.unit_type === unitType && c.view === macroView),
     [unitType, macroView]
   );
-
-  // Cashflow (depends on estimated_unit_price)
+  const baseAbsorptionDays = useMemo(
+    () => compsUsed.length ? compsUsed.reduce((s, c) => s + c.absorption_days_50pct, 0) / compsUsed.length : 58,
+    [compsUsed]
+  );
   const cashflowData = useMemo(() => {
     if (microPricing.estimated_unit_price == null) return [];
     return simulateCashflow(microPricing.estimated_unit_price, paymentPlan, timelineMonths);
   }, [microPricing.estimated_unit_price, paymentPlan, timelineMonths]);
   const cashflowSummary = useMemo(() => summarizeCashflow(cashflowData), [cashflowData]);
-
-  // Scenarios (depends on optimal PSF + base absorption from comps)
-  const baseAbsorptionDays = useMemo(() => {
-    if (!compsUsed.length) return 58; // fallback
-    const avg = compsUsed.reduce((s, c) => s + c.absorption_days_50pct, 0) / compsUsed.length;
-    return avg;
-  }, [compsUsed]);
-
   const scenarios = useMemo(
-    () =>
-      generateScenarios(microPricing.final_optimal_psf ?? 3257.65, baseAbsorptionDays, {
-        unit_count: 200,
-        avg_sqft_per_unit: sqft,
-        daily_carry_cost_aed: 50000,
-      }),
-    [microPricing.final_optimal_psf, baseAbsorptionDays, sqft]
+    () => generateScenarios(microPricing.final_optimal_psf ?? 3257.65, baseAbsorptionDays, {
+      unit_count: unitCount, avg_sqft_per_unit: sqft, daily_carry_cost_aed: 50000,
+    }),
+    [microPricing.final_optimal_psf, baseAbsorptionDays, unitCount, sqft]
   );
   const scenarioSummary = useMemo(() => summarizeScenarios(scenarios), [scenarios]);
-
   const [activeScenario, setActiveScenario] = useState(0);
 
-  // --- LLM narration state ---------------------------------------------------
-  const [gtmNarrative, setGtmNarrative] = useState<string>("");
+  // --- LLM narration ---------------------------------------------------------
+  const [gtmNarrative, setGtmNarrative] = useState("");
   const [gtmLoading, setGtmLoading] = useState(false);
-  const [rationale, setRationale] = useState<string>("");
+  const [rationale, setRationale] = useState("");
   const [rationaleLoading, setRationaleLoading] = useState(false);
 
   const fetchGTM = useCallback(async () => {
     setGtmLoading(true);
     setGtmNarrative("");
     try {
-      const scenarioPayload = {
-        scenarios,
-        summary: scenarioSummary,
-        cashflow: {
-          payment_plan: paymentPlan,
-          timeline_months: timelineMonths,
-          month_0_collected: cashflowSummary.month_0_collected,
-          handover_collected: cashflowSummary.handover_collected,
-        },
+      const payload = {
+        scenarios, summary: scenarioSummary,
+        cashflow: { payment_plan: paymentPlan, timeline_months: timelineMonths, month_0_collected: cashflowSummary.month_0_collected, handover_collected: cashflowSummary.handover_collected },
         pricing: microPricing,
       };
-      const brief = `${200}-unit ${unitType} ${macroView} tower in Dubai Marina, ${developer}-developed, ${timelineMonths}-month build, ${paymentPlan} payment plan, Floor ${floor} ${microView} reference unit.`;
-      const res = await fetch("/api/gtm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scenario_data_json: scenarioPayload, project_brief: brief }),
-      });
+      const brief = `${unitCount}-unit ${unitType} ${macroView} tower in Dubai Marina, ${developer}-developed, ${timelineMonths}-month build, ${paymentPlan} payment plan, Floor ${floor} ${microView} reference unit.`;
+      const res = await fetch("/api/gtm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scenario_data_json: payload, project_brief: brief }) });
       const data = await res.json();
       setGtmNarrative(data.narrative || "[NARRATOR UNAVAILABLE]");
-    } catch (e: any) {
-      setGtmNarrative(`[NARRATOR UNAVAILABLE]\n\n${e.message}`);
-    } finally {
-      setGtmLoading(false);
-    }
-  }, [scenarios, scenarioSummary, paymentPlan, timelineMonths, cashflowSummary, microPricing, unitType, macroView, developer, floor, microView]);
+    } catch (e: any) { setGtmNarrative(`[NARRATOR UNAVAILABLE]\n\n${e.message}`); }
+    finally { setGtmLoading(false); }
+  }, [scenarios, scenarioSummary, paymentPlan, timelineMonths, cashflowSummary, microPricing, unitType, macroView, developer, floor, microView, unitCount]);
 
   const fetchRationale = useCallback(async () => {
     setRationaleLoading(true);
@@ -185,784 +126,427 @@ export default function Home() {
     try {
       const pricingPayload = {
         ...microPricing,
-        base_optimal_psf: basePricing.optimal_psf,
-        base_floor_psf: basePricing.floor_psf,
-        base_ceiling_psf: basePricing.ceiling_psf,
-        base_absorption_days_avg: baseAbsorptionDays,
-        comps_used: compsUsed.map((c) => c.comp_id),
+        base_optimal_psf: basePricing.optimal_psf, base_floor_psf: basePricing.floor_psf, base_ceiling_psf: basePricing.ceiling_psf,
+        base_absorption_days_avg: baseAbsorptionDays, comps_used: compsUsed.map((c) => c.comp_id),
       };
-      const res = await fetch("/api/rationale", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pricing_json: pricingPayload, comps_used: compsUsed }),
-      });
+      const res = await fetch("/api/rationale", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pricing_json: pricingPayload, comps_used: compsUsed }) });
       const data = await res.json();
       setRationale(data.rationale || "[NARRATOR UNAVAILABLE]");
-    } catch (e: any) {
-      setRationale(`[NARRATOR UNAVAILABLE]\n\n${e.message}`);
-    } finally {
-      setRationaleLoading(false);
-    }
+    } catch (e: any) { setRationale(`[NARRATOR UNAVAILABLE]\n\n${e.message}`); }
+    finally { setRationaleLoading(false); }
   }, [microPricing, basePricing, baseAbsorptionDays, compsUsed]);
 
-  // Auto-fetch rationale when pricing changes (debounced)
   useEffect(() => {
     if (microPricing.final_optimal_psf == null) return;
     const t = setTimeout(() => fetchRationale(), 400);
     return () => clearTimeout(t);
   }, [microPricing.final_optimal_psf, floor, microView, fetchRationale]);
 
-  // Auto-fetch GTM when scenarios change (debounced)
   useEffect(() => {
     if (!scenarios.length) return;
     const t = setTimeout(() => fetchGTM(), 600);
     return () => clearTimeout(t);
   }, [scenarios, fetchGTM]);
 
+  const hasData = microPricing.final_optimal_psf != null;
+
   return (
-    <div
-      className="cv-theme-root min-h-screen"
-    >
-      {/* Header */}
-      <Header themeId={themeId} onThemeChange={handleThemeChange} />
+    <div className="cv-theme-root min-h-screen flex flex-col">
+      {/* === HEADER === */}
+      <header
+        className="sticky top-0 z-30 border-b backdrop-blur-xl"
+        style={{ borderColor: "var(--border)", background: "color-mix(in srgb, var(--ground) 85%, transparent)" }}
+      >
+        <div className="px-6 md:px-10 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded flex items-center justify-center" style={{ background: "var(--surface)", border: "1px solid var(--border-strong)" }}>
+              <Building2 size={16} style={{ color: "var(--gold)" }} />
+            </div>
+            <div>
+              <div className="text-sm font-semibold tracking-tight" style={{ color: "var(--text-heading)" }}>
+                Project Capital Velocity
+              </div>
+              <div className="text-[9px] uppercase tracking-[0.2em]" style={{ color: "var(--text-muted)" }}>
+                Off-Plan Capital & Yield Optimisation
+              </div>
+            </div>
+          </div>
 
-      <main className="max-w-[1400px] mx-auto px-6 md:px-10 pb-24">
-        {/* Hero / Title */}
-        <HeroSection />
+          {/* CONFIDENTIAL watermark */}
+          <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded" style={{ border: "1px solid var(--negative)" }}>
+            <Lock size={10} style={{ color: "var(--negative)" }} />
+            <span className="text-[9px] font-semibold uppercase tracking-[0.25em]" style={{ color: "var(--negative)" }}>
+              Confidential
+            </span>
+          </div>
 
-        {/* Input controls */}
-        <InputControls
-          unitType={unitType}
-          setUnitType={setUnitType}
-          microView={microView}
-          setMicroView={setMicroView}
-          floor={floor}
-          setFloor={setFloor}
-          sqft={sqft}
-          setSqft={setSqft}
-          developer={developer}
-          setDeveloper={setDeveloper}
-          paymentPlan={paymentPlan}
-          setPaymentPlan={setPaymentPlan}
-          timelineMonths={timelineMonths}
-          setTimelineMonths={setTimelineMonths}
-        />
+          <div className="flex items-center gap-3">
+            <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded text-[9px] uppercase tracking-wider" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+              <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "var(--positive)" }} />
+              Engine Live
+            </div>
+            <ThemeSwitcher activeThemeId={themeId} onThemeChange={handleThemeChange} />
+          </div>
+        </div>
+      </header>
 
-        {/* Pricing tiers section */}
-        <PricingSection
-          microPricing={microPricing}
-          basePricing={basePricing}
-          floor={floor}
-          setFloor={setFloor}
-          macroView={macroView}
-        />
+      {/* === COMMAND CENTER GRID === */}
+      <main className="flex-1 grid lg:grid-cols-5 gap-0">
+        {/* === LEFT COLUMN — 40% (lg:col-span-2) === */}
+        <aside
+          className="lg:col-span-2 border-r p-6 md:p-8 lg:sticky lg:top-[57px] lg:h-[calc(100vh-57px)] lg:overflow-y-auto"
+          style={{ borderColor: "var(--border)", background: "var(--ground)" }}
+        >
+          {/* Section label */}
+          <div className="flex items-center gap-2 mb-6">
+            <Layers size={12} style={{ color: "var(--gold)" }} />
+            <span className="text-[10px] font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--text-muted)" }}>
+              Launch Parameters
+            </span>
+          </div>
 
-        {/* Pricing rationale (LLM) */}
-        <RationaleSection
-          rationale={rationale}
-          loading={rationaleLoading}
-          onRefresh={fetchRationale}
-          compsUsed={compsUsed}
-        />
+          {/* Project Name */}
+          <Field label="Project Name">
+            <input
+              type="text"
+              value={projectName}
+              onChange={(e) => setProjectName(e.target.value)}
+              className="w-full px-3 py-2.5 rounded text-sm font-medium outline-none focus:border-[var(--gold)] transition-colors"
+              style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-heading)" }}
+            />
+          </Field>
 
-        {/* Scenario simulator */}
-        <ScenarioSection
-          scenarios={scenarios}
-          summary={scenarioSummary}
-          activeScenario={activeScenario}
-          setActiveScenario={setActiveScenario}
-        />
+          {/* Unit Type + View */}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Unit Type">
+              <Select value={unitType} onChange={setUnitType} options={[["1BR","1BR"],["2BR","2BR"],["3BR","3BR"]]} />
+            </Field>
+            <Field label="Micro View">
+              <Select value={microView} onChange={setMicroView} options={[
+                ["Full Marina","Full Marina +8%"],
+                ["Partial Marina","Partial Marina"],
+                ["Internal","Internal −5%"],
+                ["Sea","Sea"],
+                ["City","City"],
+              ]} />
+            </Field>
+          </div>
 
-        {/* Cashflow chart */}
-        <CashflowSection
-          data={cashflowData}
-          summary={cashflowSummary}
-          paymentPlan={paymentPlan}
-          timelineMonths={timelineMonths}
-        />
+          {/* Floor + Sqft */}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Floor Number">
+              <input type="number" min={1} max={120} value={floor}
+                onChange={(e) => setFloor(Number(e.target.value))}
+                className="w-full px-3 py-2.5 rounded text-sm font-medium outline-none focus:border-[var(--gold)]"
+                style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-heading)" }} />
+            </Field>
+            <Field label="Unit Sqft">
+              <input type="number" min={500} max={10000} step={50} value={sqft}
+                onChange={(e) => setSqft(Number(e.target.value))}
+                className="w-full px-3 py-2.5 rounded text-sm font-medium outline-none focus:border-[var(--gold)]"
+                style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-heading)" }} />
+            </Field>
+          </div>
 
-        {/* GTM Strategy (LLM) */}
-        <GTMSection
-          narrative={gtmNarrative}
-          loading={gtmLoading}
-          onRefresh={fetchGTM}
-        />
+          {/* Developer */}
+          <Field label="Developer (Brand Tier)">
+            <Select value={developer} onChange={setDeveloper} options={[
+              ["Emaar Properties","Emaar — Tier 1 (+5%)"],
+              ["Select Group","Select Group — Tier 1 (+5%)"],
+              ["Meraas","Meraas — Tier 1 (+5%)"],
+              ["Muraba","Muraba — Tier 2"],
+            ]} />
+          </Field>
 
-        {/* Footer */}
-        <Footer />
+          {/* Payment Plan + Timeline */}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Payment Plan">
+              <Select value={paymentPlan} onChange={setPaymentPlan} options={[["50/50","50/50"],["60/40","60/40"],["70/30","70/30"],["80/20","80/20"]]} />
+            </Field>
+            <Field label="Timeline (mo)">
+              <Select value={String(timelineMonths)} onChange={(v) => setTimelineMonths(Number(v))} options={[["24","24"],["36","36"],["48","48"]]} />
+            </Field>
+          </div>
+
+          {/* Unit Count */}
+          <Field label="Project Unit Count">
+            <input type="number" min={1} value={unitCount}
+              onChange={(e) => setUnitCount(Number(e.target.value))}
+              className="w-full px-3 py-2.5 rounded text-sm font-medium outline-none focus:border-[var(--gold)]"
+              style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-heading)" }} />
+          </Field>
+
+          {/* Floor Picker */}
+          <div className="mt-6 pt-6 border-t" style={{ borderColor: "var(--border)" }}>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--text-muted)" }}>
+                Floor Premium Scrubber
+              </span>
+              <span className="text-[10px] font-mono" style={{ color: "var(--gold)" }}>
+                +{(floor / 10).toFixed(1)}%
+              </span>
+            </div>
+            <FloorPicker minFloor={1} maxFloor={100} floor={floor} onChange={setFloor} />
+          </div>
+
+          {/* Comp audit */}
+          <div className="mt-6 pt-6 border-t" style={{ borderColor: "var(--border)" }}>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] mb-3" style={{ color: "var(--text-muted)" }}>
+              Comparables Used
+            </div>
+            <div className="space-y-2">
+              {compsUsed.length === 0 ? (
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>[NO COMPS MATCHED]</div>
+              ) : (
+                compsUsed.map((c) => (
+                  <div key={c.comp_id} className="flex items-center justify-between text-[11px]">
+                    <span style={{ color: "var(--text-body)" }}>{c.comp_id} · {c.project}</span>
+                    <span className="font-mono" style={{ color: "var(--text-muted)" }}>{c.absorption_days_50pct}d</span>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="mt-3 text-[10px]" style={{ color: "var(--text-muted)" }}>
+              Confidence: <span style={{ color: basePricing.data_confidence === "High" ? "var(--positive)" : basePricing.data_confidence === "Medium" ? "var(--gold)" : "var(--negative)" }}>{basePricing.data_confidence}</span> · {basePricing.comp_count} comps
+            </div>
+          </div>
+        </aside>
+
+        {/* === RIGHT COLUMN — 60% (lg:col-span-3) === */}
+        <section className="lg:col-span-3 p-6 md:p-8 space-y-6" style={{ background: "var(--ground)" }}>
+          {/* === PANEL 1: PRICING MATRIX === */}
+          <Panel
+            icon={<DollarSign size={14} />}
+            title="Pricing Matrix"
+            subtitle="Three-tier deterministic architecture · Floor / Optimal / Ceiling"
+            hasData={hasData}
+          >
+            {/* Tier tiles */}
+            <div className="grid grid-cols-3 gap-4 mb-5">
+              {[
+                { name: "Floor", val: microPricing.final_floor_psf, mult: "× 0.96", desc: "Clearance", color: "var(--text-muted)" },
+                { name: "Optimal", val: microPricing.final_optimal_psf, mult: "× 1.03", desc: "Target", color: "var(--gold)" },
+                { name: "Ceiling", val: microPricing.final_ceiling_psf, mult: "× 1.12", desc: "Headroom", color: "var(--accent)" },
+              ].map((t, i) => (
+                <motion.div
+                  key={t.name}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.08, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                  className="p-4 rounded-lg border"
+                  style={{ background: "var(--surface)", borderColor: t.name === "Optimal" ? "var(--gold)" : "var(--border)", borderLeftWidth: t.name === "Optimal" ? 2 : 1 }}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: t.color }}>{t.name}</span>
+                    <span className="text-[8px] font-mono" style={{ color: "var(--text-muted)" }}>{t.mult}</span>
+                  </div>
+                  <div className="text-xl font-semibold" style={{ color: t.color }}>
+                    {t.val != null ? <AnimatedCounter value={t.val} format="psf" duration={0.9} /> : <span style={{ color: "var(--text-muted)" }}>[MISSING]</span>}
+                  </div>
+                  <div className="text-[9px] mt-1" style={{ color: "var(--text-muted)" }}>{t.desc}</div>
+                </motion.div>
+              ))}
+            </div>
+
+            {/* Estimated unit price + adjustments */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-4 rounded-lg border" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
+                <div className="text-[9px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
+                  Estimated Unit Price
+                </div>
+                <div className="text-2xl font-semibold" style={{ color: "var(--text-heading)" }}>
+                  {microPricing.estimated_unit_price != null ? <AnimatedCounter value={microPricing.estimated_unit_price} format="aed" duration={1.2} /> : <span style={{ color: "var(--text-muted)" }}>[MISSING]</span>}
+                </div>
+                <div className="text-[9px] mt-1" style={{ color: "var(--text-muted)" }}>Optimal PSF × {sqft} sqft</div>
+              </div>
+              <div className="p-4 rounded-lg border space-y-2" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
+                <AdjRow label="Floor premium" value={microPricing.floor_premium_pct} />
+                <AdjRow label="View modifier" value={microPricing.micro_view_modifier_pct} />
+                <AdjRow label="Combined uplift" value={microPricing.combined_adjustment_pct} bold />
+              </div>
+            </div>
+
+            {/* Pricing rationale (inline) */}
+            <div className="mt-4 p-4 rounded-lg border-l-2" style={{ background: "var(--surface)", borderColor: "var(--border)", borderLeftColor: "var(--gold)" }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: "var(--gold)" }}>
+                  Pricing Rationale · PropTech Data Scientist
+                </span>
+                <button onClick={fetchRationale} disabled={rationaleLoading}
+                  className="text-[9px] px-2 py-0.5 rounded disabled:opacity-50"
+                  style={{ background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+                  {rationaleLoading ? "..." : "↻"}
+                </button>
+              </div>
+              {rationaleLoading && !rationale ? (
+                <div className="space-y-1.5">
+                  <div className="h-2.5 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: "92%" }} />
+                  <div className="h-2.5 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: "78%" }} />
+                </div>
+              ) : rationale ? (
+                <Typewriter text={rationale} speed={18} className="text-xs leading-relaxed" />
+              ) : (
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>Adjust parameters to generate rationale.</div>
+              )}
+            </div>
+          </Panel>
+
+          {/* === PANEL 2: CAPITAL VELOCITY CHART === */}
+          <Panel
+            icon={<Activity size={14} />}
+            title="Capital Velocity Chart"
+            subtitle="Price vs Absorption scenarios + Cashflow timing"
+            hasData={hasData}
+          >
+            {/* Scenario tabs + KPIs */}
+            <ScenarioChart scenarios={scenarios} activeIndex={activeScenario} onSelect={setActiveScenario} />
+
+            {/* Scenario summary */}
+            <div className="grid grid-cols-4 gap-3 mt-4 pt-4 border-t" style={{ borderColor: "var(--border)" }}>
+              <MiniStat label="Rev Spread" value={scenarioSummary.revenue_spread_aed} format="aed" />
+              <MiniStat label="Carry Spread" value={scenarioSummary.carry_cost_spread_aed} format="aed" />
+              <MiniStat label="Net Spread" value={scenarioSummary.net_position_spread_aed} format="aed" accent />
+              <MiniStat label="Days Spread" value={scenarioSummary.absorption_spread_days} format="days" />
+            </div>
+
+            {/* Cashflow chart */}
+            <div className="mt-5 pt-4 border-t" style={{ borderColor: "var(--border)" }}>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+                  Cashflow Timing · {paymentPlan} · {timelineMonths}mo
+                </span>
+                <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>
+                  Month 0: <span style={{ color: "var(--gold)" }}>AED {cashflowSummary.month_0_collected?.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
+                  {" · "}Handover: <span style={{ color: "var(--gold)" }}>AED {cashflowSummary.handover_collected?.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
+                </span>
+              </div>
+              <CashflowChart data={cashflowData} paymentPlan={paymentPlan} />
+            </div>
+          </Panel>
+
+          {/* === PANEL 3: BOARDROOM RATIONALE === */}
+          <Panel
+            icon={<Brain size={14} />}
+            title="Boardroom Rationale"
+            subtitle="McKinsey Partner · GTM Strategy · 200 words"
+            hasData={hasData}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: "var(--gold)" }}>
+                Target Buyer · Positioning · Launch Phasing
+              </span>
+              <button onClick={fetchGTM} disabled={gtmLoading}
+                className="text-[9px] px-2 py-0.5 rounded disabled:opacity-50"
+                style={{ background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+                {gtmLoading ? "Drafting..." : "Regenerate"}
+              </button>
+            </div>
+
+            {gtmLoading && !gtmNarrative ? (
+              <div className="space-y-2">
+                {[...Array(5)].map((_, i) => (
+                  <div key={i} className="h-3 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: `${80 + Math.random() * 20}%` }} />
+                ))}
+              </div>
+            ) : gtmNarrative ? (
+              <Typewriter text={gtmNarrative} speed={24} className="text-sm leading-relaxed whitespace-pre-wrap" />
+            ) : (
+              <div className="text-sm" style={{ color: "var(--text-muted)" }}>Adjust parameters to generate GTM strategy.</div>
+            )}
+
+            {/* Anti-hallucination footer */}
+            <div className="mt-4 pt-3 border-t flex items-center gap-2" style={{ borderColor: "var(--border)" }}>
+              <Calculator size={10} style={{ color: "var(--gold)" }} />
+              <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+                Anti-Hallucination Protocol — every figure traces to deterministic JSON
+              </span>
+            </div>
+          </Panel>
+        </section>
       </main>
     </div>
   );
 }
 
-/* ===========================================================================
-   Header
-   =========================================================================== */
-function Header({
-  themeId,
-  onThemeChange,
-}: {
-  themeId: ThemeId;
-  onThemeChange: (id: ThemeId) => void;
-}) {
-  return (
-    <header
-      className="sticky top-0 z-30 border-b backdrop-blur-xl"
-      style={{
-        borderColor: "var(--border)",
-        background: "color-mix(in srgb, var(--ground) 80%, transparent)",
-      }}
-    >
-      <div className="max-w-[1400px] mx-auto px-6 md:px-10 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div
-            className="w-9 h-9 rounded-md flex items-center justify-center"
-            style={{
-              background: "var(--surface)",
-              border: "1px solid var(--border-strong)",
-            }}
-          >
-            <Building2 size={18} style={{ color: "var(--gold)" }} />
-          </div>
-          <div>
-            <div
-              className="text-sm font-semibold tracking-tight"
-              style={{ color: "var(--text-heading)" }}
-            >
-              Project Capital Velocity
-            </div>
-            <div
-              className="text-[10px] uppercase tracking-wider"
-              style={{ color: "var(--text-muted)" }}
-            >
-              Off-Plan Capital & Yield Optimisation
-            </div>
-          </div>
-        </div>
+/* === Shared components === */
 
-        <div className="flex items-center gap-4">
-          <div
-            className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-md text-[10px] uppercase tracking-wider"
-            style={{
-              background: "var(--surface)",
-              border: "1px solid var(--border)",
-              color: "var(--text-muted)",
-            }}
-          >
-            <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "var(--positive)" }} />
-            Deterministic Engine Live
-          </div>
-          <ThemeSwitcher activeThemeId={themeId} onThemeChange={onThemeChange} />
-        </div>
-      </div>
-    </header>
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-4">
+      <label className="text-[10px] font-semibold uppercase tracking-[0.15em] mb-1.5 block" style={{ color: "var(--text-muted)" }}>
+        {label}
+      </label>
+      {children}
+    </div>
   );
 }
 
-/* ===========================================================================
-   Hero
-   =========================================================================== */
-function HeroSection() {
+function Select({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: [string, string][] }) {
   return (
-    <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-      className="pt-16 pb-12"
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full px-3 py-2.5 rounded text-sm font-medium outline-none focus:border-[var(--gold)] cursor-pointer appearance-none"
+      style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-heading)" }}
     >
-      <div
-        className="text-[11px] uppercase tracking-[0.2em] mb-4 flex items-center gap-2"
-        style={{ color: "var(--gold)" }}
-      >
-        <Sparkles size={12} />
-        High-Fidelity Prototype · Dubai Marina Micro-Market
-      </div>
-      <h1
-        className="text-4xl md:text-5xl font-semibold tracking-tight leading-[1.05] mb-4"
-        style={{ color: "var(--text-heading)" }}
-      >
-        The pricing engine for
-        <br />
-        <span style={{ color: "var(--gold)" }}>AED 2 Billion</span> tower launches.
-      </h1>
-      <p
-        className="text-base max-w-2xl leading-relaxed"
-        style={{ color: "var(--text-body)" }}
-      >
-        Deterministic three-tier pricing architecture. Cashflow-timing simulation.
-        AI-narrated GTM strategy. Built for Tier-1 GCC developers where a 2% pricing
-        error equals AED 20 million destroyed on a single tower.
-      </p>
-    </motion.section>
+      {options.map(([val, label]) => (
+        <option key={val} value={val}>{label}</option>
+      ))}
+    </select>
   );
 }
 
-/* ===========================================================================
-   Input Controls
-   =========================================================================== */
-function InputControls(props: any) {
-  const {
-    unitType, setUnitType,
-    microView, setMicroView,
-    floor, setFloor,
-    sqft, setSqft,
-    developer, setDeveloper,
-    paymentPlan, setPaymentPlan,
-    timelineMonths, setTimelineMonths,
-  } = props;
-
-  const selectClass =
-    "w-full px-3 py-2 rounded-md text-xs font-medium outline-none appearance-none cursor-pointer";
-  const selectStyle = {
-    background: "var(--surface)",
-    border: "1px solid var(--border)",
-    color: "var(--text-heading)",
-  };
-  const labelClass = "text-[10px] font-semibold uppercase tracking-wider mb-1.5 block";
-  const labelStyle = { color: "var(--text-muted)" };
-
-  return (
-    <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
-      className="mb-8 p-6 rounded-lg border"
-      style={{ background: "var(--surface)", borderColor: "var(--border)" }}
-    >
-      <div className="flex items-center gap-2 mb-5">
-        <Layers size={14} style={{ color: "var(--gold)" }} />
-        <h2 className="text-sm font-semibold" style={{ color: "var(--text-heading)" }}>
-          Unit Specification
-        </h2>
-        <span className="text-[10px] uppercase tracking-wider ml-auto" style={{ color: "var(--text-muted)" }}>
-          Adjust to recompute pricing → scenarios → GTM
-        </span>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-        <div>
-          <label className={labelClass} style={labelStyle}>Unit Type</label>
-          <select
-            className={selectClass}
-            style={selectStyle}
-            value={unitType}
-            onChange={(e) => setUnitType(e.target.value)}
-          >
-            <option value="1BR">1BR</option>
-            <option value="2BR">2BR</option>
-            <option value="3BR">3BR</option>
-          </select>
-        </div>
-
-        <div>
-          <label className={labelClass} style={labelStyle}>Micro View</label>
-          <select
-            className={selectClass}
-            style={selectStyle}
-            value={microView}
-            onChange={(e) => setMicroView(e.target.value)}
-          >
-            <option value="Full Marina">Full Marina (+8%)</option>
-            <option value="Partial Marina">Partial Marina</option>
-            <option value="Internal">Internal (−5%)</option>
-            <option value="Sea">Sea</option>
-            <option value="City">City</option>
-          </select>
-        </div>
-
-        <div>
-          <label className={labelClass} style={labelStyle}>Floor</label>
-          <input
-            type="number"
-            min={1}
-            max={120}
-            className={selectClass}
-            style={selectStyle}
-            value={floor}
-            onChange={(e) => setFloor(Number(e.target.value))}
-          />
-        </div>
-
-        <div>
-          <label className={labelClass} style={labelStyle}>Sqft</label>
-          <input
-            type="number"
-            min={500}
-            max={10000}
-            step={50}
-            className={selectClass}
-            style={selectStyle}
-            value={sqft}
-            onChange={(e) => setSqft(Number(e.target.value))}
-          />
-        </div>
-
-        <div>
-          <label className={labelClass} style={labelStyle}>Developer</label>
-          <select
-            className={selectClass}
-            style={selectStyle}
-            value={developer}
-            onChange={(e) => setDeveloper(e.target.value)}
-          >
-            <option value="Emaar Properties">Emaar (Tier 1 +5%)</option>
-            <option value="Select Group">Select Group (Tier 1 +5%)</option>
-            <option value="Meraas">Meraas (Tier 1 +5%)</option>
-            <option value="Muraba">Muraba (Tier 2)</option>
-          </select>
-        </div>
-
-        <div>
-          <label className={labelClass} style={labelStyle}>Payment Plan</label>
-          <select
-            className={selectClass}
-            style={selectStyle}
-            value={paymentPlan}
-            onChange={(e) => setPaymentPlan(e.target.value)}
-          >
-            <option value="50/50">50/50</option>
-            <option value="60/40">60/40</option>
-            <option value="70/30">70/30</option>
-            <option value="80/20">80/20</option>
-          </select>
-        </div>
-
-        <div>
-          <label className={labelClass} style={labelStyle}>Timeline (mo)</label>
-          <select
-            className={selectClass}
-            style={selectStyle}
-            value={timelineMonths}
-            onChange={(e) => setTimelineMonths(Number(e.target.value))}
-          >
-            <option value={24}>24</option>
-            <option value={36}>36</option>
-            <option value={48}>48</option>
-          </select>
-        </div>
-      </div>
-    </motion.section>
-  );
-}
-
-/* ===========================================================================
-   Pricing Section — three-tier band + floor picker
-   =========================================================================== */
-function PricingSection({ microPricing, basePricing, floor, setFloor, macroView }: any) {
-  const tiers = [
-    { name: "Floor", value: microPricing.final_floor_psf, mult: "× 0.96", desc: "Defensive clearance price", color: "var(--text-muted)" },
-    { name: "Optimal", value: microPricing.final_optimal_psf, mult: "× 1.03", desc: "Target realized price", color: "var(--gold)" },
-    { name: "Ceiling", value: microPricing.final_ceiling_psf, mult: "× 1.12", desc: "Negotiation headroom", color: "var(--accent)" },
-  ];
-
-  return (
-    <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-80px" }}
-      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-      className="mb-8"
-    >
-      <SectionHeader
-        icon={<DollarSign size={14} />}
-        title="Three-Tier Pricing Architecture"
-        subtitle={`Macro corridor: ${macroView} · Confidence: ${basePricing.data_confidence} · ${basePricing.comp_count} comps`}
-      />
-
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* Tier tiles */}
-        <div className="lg:col-span-2 grid grid-cols-3 gap-4">
-          {tiers.map((tier, i) => (
-            <motion.div
-              key={tier.name}
-              initial={{ opacity: 0, y: 16 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: i * 0.1, ease: [0.16, 1, 0.3, 1] }}
-              className="p-5 rounded-lg border"
-              style={{
-                background: "var(--surface)",
-                borderColor: tier.name === "Optimal" ? "var(--gold)" : "var(--border)",
-                borderLeftWidth: tier.name === "Optimal" ? 3 : 1,
-              }}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div
-                  className="text-[10px] font-semibold uppercase tracking-wider"
-                  style={{ color: tier.color }}
-                >
-                  {tier.name}
-                </div>
-                <div className="text-[9px] font-mono" style={{ color: "var(--text-muted)" }}>
-                  {tier.mult}
-                </div>
-              </div>
-              <div className="text-2xl font-semibold mb-1" style={{ color: tier.color }}>
-                {tier.value != null ? (
-                  <AnimatedCounter value={tier.value} format="psf" duration={1} />
-                ) : (
-                  <span style={{ color: "var(--text-muted)" }}>[DATA MISSING]</span>
-                )}
-              </div>
-              <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                {tier.desc}
-              </div>
-            </motion.div>
-          ))}
-        </div>
-
-        {/* Estimated unit price + adjustments */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
-          className="p-5 rounded-lg border"
-          style={{ background: "var(--surface)", borderColor: "var(--border)" }}
-        >
-          <div className="text-[10px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)" }}>
-            Estimated Unit Price
-          </div>
-          <div className="text-3xl font-semibold mb-1" style={{ color: "var(--text-heading)" }}>
-            {microPricing.estimated_unit_price != null ? (
-              <AnimatedCounter value={microPricing.estimated_unit_price} format="aed" duration={1.4} />
-            ) : (
-              <span style={{ color: "var(--text-muted)" }}>[DATA MISSING]</span>
-            )}
-          </div>
-          <div className="text-[10px] mb-4" style={{ color: "var(--text-muted)" }}>
-            Optimal PSF × {sqftLabel(microPricing)}
-          </div>
-
-          <div className="space-y-2 pt-3 border-t" style={{ borderColor: "var(--border)" }}>
-            <AdjustmentRow label="Floor premium" value={microPricing.floor_premium_pct} />
-            <AdjustmentRow label="View modifier" value={microPricing.micro_view_modifier_pct} />
-            <AdjustmentRow label="Combined uplift" value={microPricing.combined_adjustment_pct} bold />
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Floor picker */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        whileInView={{ opacity: 1 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.5, delay: 0.4 }}
-        className="mt-6 p-5 rounded-lg border"
-        style={{ background: "var(--surface)", borderColor: "var(--border)" }}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
-            Floor Premium Scrubber
-          </div>
-          <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-            Drag to see PSF shift in real-time
-          </div>
-        </div>
-        <FloorPicker minFloor={1} maxFloor={100} floor={floor} onChange={setFloor} />
-      </motion.div>
-    </motion.section>
-  );
-}
-
-function sqftLabel(microPricing: any) {
-  // We don't have sqft in microPricing; the parent passes it. Just return a generic label.
-  return "unit sqft";
-}
-
-function AdjustmentRow({ label, value, bold }: { label: string; value: number | null; bold?: boolean }) {
+function AdjRow({ label, value, bold }: { label: string; value: number | null; bold?: boolean }) {
   return (
     <div className="flex justify-between items-center text-[11px]">
       <span style={{ color: "var(--text-muted)" }}>{label}</span>
-      <span
-        className="font-mono"
-        style={{
-          color: value == null ? "var(--text-muted)" : value >= 0 ? "var(--positive)" : "var(--negative)",
-          fontWeight: bold ? 600 : 400,
-        }}
-      >
+      <span className="font-mono" style={{
+        color: value == null ? "var(--text-muted)" : value >= 0 ? "var(--positive)" : "var(--negative)",
+        fontWeight: bold ? 600 : 400,
+      }}>
         {value == null ? "—" : `${value >= 0 ? "+" : ""}${value}%`}
       </span>
     </div>
   );
 }
 
-/* ===========================================================================
-   Rationale Section (LLM)
-   =========================================================================== */
-function RationaleSection({ rationale, loading, onRefresh, compsUsed }: any) {
-  return (
-    <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-80px" }}
-      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-      className="mb-8"
-    >
-      <SectionHeader
-        icon={<Brain size={14} />}
-        title="Pricing Rationale"
-        subtitle="PropTech Data Scientist · ≤3 sentences · cites absorption + view premiums"
-      />
-
-      <div
-        className="p-6 rounded-lg border-l-2"
-        style={{
-          background: "var(--surface)",
-          borderColor: "var(--border)",
-          borderLeftColor: "var(--gold)",
-        }}
-      >
-        <div className="flex items-start justify-between mb-3">
-          <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--gold)" }}>
-            Why Optimal over Floor / Ceiling
-          </div>
-          <button
-            onClick={onRefresh}
-            disabled={loading}
-            className="text-[10px] px-2 py-1 rounded transition-colors disabled:opacity-50"
-            style={{
-              background: "var(--surface-raised)",
-              border: "1px solid var(--border)",
-              color: "var(--text-muted)",
-            }}
-          >
-            {loading ? "Generating..." : "Regenerate"}
-          </button>
-        </div>
-
-        {loading && !rationale ? (
-          <div className="space-y-2">
-            <div className="h-3 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: "90%" }} />
-            <div className="h-3 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: "75%" }} />
-            <div className="h-3 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: "85%" }} />
-          </div>
-        ) : rationale ? (
-          <Typewriter
-            text={rationale}
-            speed={20}
-            className="text-sm leading-relaxed"
-          />
-        ) : (
-          <div className="text-sm" style={{ color: "var(--text-muted)" }}>
-            Adjust the unit spec to generate rationale.
-          </div>
-        )}
-
-        {/* Comps audit trail */}
-        <div className="mt-5 pt-4 border-t flex flex-wrap items-center gap-2" style={{ borderColor: "var(--border)" }}>
-          <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
-            Comps used:
-          </span>
-          {compsUsed.map((c: any) => (
-            <span
-              key={c.comp_id}
-              className="text-[10px] px-2 py-0.5 rounded font-mono"
-              style={{
-                background: "var(--surface-raised)",
-                border: "1px solid var(--border)",
-                color: "var(--text-body)",
-              }}
-            >
-              {c.comp_id} · {c.project}
-            </span>
-          ))}
-        </div>
-      </div>
-    </motion.section>
-  );
-}
-
-/* ===========================================================================
-   Scenario Section
-   =========================================================================== */
-function ScenarioSection({ scenarios, summary, activeScenario, setActiveScenario }: any) {
-  return (
-    <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-80px" }}
-      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-      className="mb-8"
-    >
-      <SectionHeader
-        icon={<TrendingUp size={14} />}
-        title="Scenario Simulator — Price vs Velocity"
-        subtitle="Aggressive · Base · Conservative · 200-unit tower assumption"
-      />
-
-      <div className="p-6 rounded-lg border" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
-        <ScenarioChart scenarios={scenarios} activeIndex={activeScenario} onSelect={setActiveScenario} />
-
-        {/* Summary row */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t" style={{ borderColor: "var(--border)" }}>
-          <SummaryStat label="Revenue spread" value={summary.revenue_spread_aed} format="aed" sub={`${summary.revenue_spread_pct ?? 0}% of base`} />
-          <SummaryStat label="Carry cost spread" value={summary.carry_cost_spread_aed} format="aed" />
-          <SummaryStat label="Net position spread" value={summary.net_position_spread_aed} format="aed" accent />
-          <SummaryStat label="Absorption spread" value={summary.absorption_spread_days} format="days" />
-        </div>
-      </div>
-    </motion.section>
-  );
-}
-
-function SummaryStat({ label, value, format, sub, accent }: any) {
+function MiniStat({ label, value, format, accent }: { label: string; value: number | null; format: "aed" | "days"; accent?: boolean }) {
   return (
     <div>
-      <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>
-        {label}
+      <div className="text-[9px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>{label}</div>
+      <div className="text-base font-semibold" style={{ color: accent ? "var(--gold)" : "var(--text-heading)" }}>
+        {value != null ? <AnimatedCounter value={value} format={format} duration={0.7} /> : <span style={{ color: "var(--text-muted)" }}>—</span>}
       </div>
-      <div className="text-lg font-semibold" style={{ color: accent ? "var(--gold)" : "var(--text-heading)" }}>
-        {value != null ? <AnimatedCounter value={value} format={format} duration={0.8} /> : <span style={{ color: "var(--text-muted)" }}>—</span>}
-      </div>
-      {sub && <div className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>{sub}</div>}
     </div>
   );
 }
 
-/* ===========================================================================
-   Cashflow Section
-   =========================================================================== */
-function CashflowSection({ data, summary, paymentPlan, timelineMonths }: any) {
+function Panel({ icon, title, subtitle, hasData, children }: { icon: React.ReactNode; title: string; subtitle: string; hasData: boolean; children: React.ReactNode }) {
   return (
     <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-80px" }}
-      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-      className="mb-8"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+      className="rounded-xl border overflow-hidden"
+      style={{ background: "var(--surface)", borderColor: "var(--border)" }}
     >
-      <SectionHeader
-        icon={<Activity size={14} />}
-        title="Cashflow Timing — When Cash Hits The Bank"
-        subtitle={`${paymentPlan} plan · ${timelineMonths}-month build · 5% downpayment at month 0`}
-      />
-
-      <div className="p-6 rounded-lg border" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
-        <CashflowChart data={data} paymentPlan={paymentPlan} />
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t" style={{ borderColor: "var(--border)" }}>
-          <SummaryStat label="Month 0 (Downpayment)" value={summary.month_0_collected} format="aed" sub={`${summary.month_0_pct}% of unit price`} />
-          <SummaryStat label={`Month ${summary.mid_build_month} (Mid-build)`} value={summary.mid_build_collected} format="aed" sub={`${summary.mid_build_pct}% collected`} />
-          <SummaryStat label={`Month ${summary.handover_month} (Handover)`} value={summary.handover_collected} format="aed" sub={`${summary.handover_pct}% of unit price`} accent />
-          <SummaryStat label="Total collected" value={summary.total_collected} format="aed" sub="Reconciles to unit price" />
+      {/* Panel header */}
+      <div className="flex items-center gap-3 px-5 py-4 border-b" style={{ borderColor: "var(--border)" }}>
+        <div style={{ color: "var(--gold)" }}>{icon}</div>
+        <div className="flex-1">
+          <h2 className="text-sm font-semibold" style={{ color: "var(--text-heading)" }}>{title}</h2>
+          <div className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>{subtitle}</div>
         </div>
-      </div>
-    </motion.section>
-  );
-}
-
-/* ===========================================================================
-   GTM Section (LLM)
-   =========================================================================== */
-function GTMSection({ narrative, loading, onRefresh }: any) {
-  return (
-    <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-80px" }}
-      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-      className="mb-12"
-    >
-      <SectionHeader
-        icon={<Brain size={14} />}
-        title="GTM Strategy — Boardroom Narrative"
-        subtitle="Senior Partner at McKinsey · 200 words · Buyer Persona · Positioning · Launch Phasing"
-      />
-
-      <div
-        className="p-6 rounded-lg border-l-2"
-        style={{
-          background: "var(--surface)",
-          borderColor: "var(--border)",
-          borderLeftColor: "var(--gold)",
-        }}
-      >
-        <div className="flex items-start justify-between mb-3">
-          <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--gold)" }}>
-            McKinsey Partner — Emaar CEO Briefing
-          </div>
-          <button
-            onClick={onRefresh}
-            disabled={loading}
-            className="text-[10px] px-2 py-1 rounded transition-colors disabled:opacity-50"
-            style={{
-              background: "var(--surface-raised)",
-              border: "1px solid var(--border)",
-              color: "var(--text-muted)",
-            }}
-          >
-            {loading ? "Drafting..." : "Regenerate"}
-          </button>
-        </div>
-
-        {loading && !narrative ? (
-          <div className="space-y-2">
-            {[...Array(6)].map((_, i) => (
-              <div
-                key={i}
-                className="h-3 rounded animate-pulse"
-                style={{ background: "var(--surface-raised)", width: `${85 + Math.random() * 15}%` }}
-              />
-            ))}
-          </div>
-        ) : narrative ? (
-          <Typewriter
-            text={narrative}
-            speed={28}
-            className="text-sm leading-relaxed whitespace-pre-wrap"
-          />
-        ) : (
-          <div className="text-sm" style={{ color: "var(--text-muted)" }}>
-            Adjust the unit spec to generate GTM strategy.
-          </div>
+        {!hasData && (
+          <span className="text-[9px] px-2 py-0.5 rounded uppercase tracking-wider" style={{ background: "var(--surface-raised)", color: "var(--text-muted)" }}>
+            Waiting
+          </span>
         )}
       </div>
+      {/* Panel body */}
+      <div className="p-5">
+        {children}
+      </div>
     </motion.section>
-  );
-}
-
-/* ===========================================================================
-   Shared — SectionHeader, Footer
-   =========================================================================== */
-function SectionHeader({ icon, title, subtitle }: { icon: React.ReactNode; title: string; subtitle: string }) {
-  return (
-    <div className="flex items-center gap-3 mb-5">
-      <div style={{ color: "var(--gold)" }}>{icon}</div>
-      <div className="flex-1">
-        <h2 className="text-base font-semibold" style={{ color: "var(--text-heading)" }}>
-          {title}
-        </h2>
-        <div className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>
-          {subtitle}
-        </div>
-      </div>
-      <div className="h-px flex-1 max-w-[200px]" style={{ background: "var(--border)" }} />
-    </div>
-  );
-}
-
-function Footer() {
-  return (
-    <footer
-      className="mt-16 pt-8 border-t flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
-      style={{ borderColor: "var(--border)" }}
-    >
-      <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-        <div className="font-semibold mb-1" style={{ color: "var(--text-body)" }}>
-          Project Capital Velocity — High-Fidelity Prototype
-        </div>
-        <div>
-          Deterministic math (TypeScript port of Python engines) · LLM narration (GLM-4) · 6-theme atlas
-        </div>
-        <div className="mt-1">
-          Anti-Hallucination Protocol enforced: every number in LLM output traces to the deterministic JSON payload.
-        </div>
-      </div>
-      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
-        <Calculator size={11} style={{ color: "var(--gold)" }} />
-        No LLM computes a number
-      </div>
-    </footer>
   );
 }

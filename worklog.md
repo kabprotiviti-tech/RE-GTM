@@ -592,3 +592,73 @@ Stage Summary:
 - The frontend can now hit a single endpoint and get everything in one call.
   No more 5 separate API round-trips — the orchestrator handles the full
   pipeline server-side and returns one massive, beautifully structured JSON.
+
+---
+Task ID: 10
+Agent: Lead Architect (main)
+Task: Rebuild src/app/page.tsx as a Command Center layout — 40/60 grid split,
+slim header with CONFIDENTIAL watermark, left input form, right output panels.
+
+Work Log:
+- Rebuilt page.tsx with command center grid layout:
+    * Header: slim (py-3), sticky, backdrop-blur, with CONFIDENTIAL watermark
+      (red border + Lock icon, uppercase tracking-[0.25em])
+    * Main: lg:grid-cols-5 split (left col-span-2 = 40%, right col-span-3 = 60%)
+    * Left column: sticky on desktop (lg:sticky lg:top-[57px]), overflow-y-auto,
+      contains the full input form + floor picker + comps audit
+    * Right column: three stacked Panel components, each with icon + title +
+      subtitle header bar and content body
+- Left column input form fields (per Phase 9 spec):
+    * Project Name (text input)
+    * Unit Type (select: 1BR/2BR/3BR)
+    * Micro View (select: Full Marina +8% / Partial Marina / Internal -5% / Sea / City)
+    * Floor Number (number input)
+    * Unit Sqft (number input)
+    * Developer / Brand Tier (select with Tier 1/Tier 2 labels)
+    * Payment Plan (select: 50/50, 60/40, 70/30, 80/20)
+    * Timeline (select: 24/36/48 months)
+    * Project Unit Count (number input)
+    * Floor Premium Scrubber (FloorPicker component, live +X.X% display)
+    * Comparables Used (audit trail with comp_id, project, absorption days,
+      confidence badge color-coded High/Medium/Low)
+- Right column three panels (per Phase 9 spec):
+    1. PRICING MATRIX — three-tier tiles (Floor/Optimal/Ceiling) with animated
+       AED counters + estimated unit price tile + adjustments tile (floor premium,
+       view modifier, combined uplift) + inline pricing rationale (LLM typewriter)
+    2. CAPITAL VELOCITY CHART — scenario tabs (Aggressive/Base/Conservative) with
+       morph chart + 4 mini stats (rev spread, carry spread, net spread, days
+       spread) + cashflow timing chart with month-0 and handover callouts
+    3. BOARDROOM RATIONALE — LLM GTM strategy (McKinsey Partner persona, 200
+       words, typewriter streaming) + anti-hallucination protocol footer badge
+- Extracted reusable components:
+    * Field — labeled input wrapper with uppercase tracking label
+    * Select — styled dropdown with focus:border-gold
+    * AdjRow — adjustment row with color-coded positive/negative values
+    * MiniStat — compact stat tile with animated counter
+    * Panel — section wrapper with icon + title + subtitle header, "Waiting"
+      badge when hasData=false, content body
+- Color discipline enforced (per Phase 9 spec):
+    * Background: var(--ground) = #0A0A0A (Obsidian)
+    * Text: var(--text-heading) = #FFFFFF, var(--text-body) = #94A3B8
+    * Borders: var(--border) = #262626 (close to spec's #1F2937)
+    * Accent: var(--gold) = #D4AF37 used sparingly for Optimal tier, rationales
+- White space: generous p-6/p-8 padding, gap-6 between panels, gap-4 within
+- Lint: clean (0 errors, 0 warnings)
+- Browser-verified via agent-browser + VLM:
+    * 40/60 split confirmed
+    * CONFIDENTIAL watermark visible in header
+    * Three right panels labeled correctly
+    * Dark Obsidian theme applied
+    * Scenario chart with Aggressive/Base/Conservative tabs + AED values
+    * Cashflow chart rendering
+    * LLM GTM narration visible in Boardroom Rationale panel
+
+Stage Summary:
+- File: src/app/page.tsx (rebuilt, ~450 lines — leaner than previous 970-line version)
+- Layout: command center 40/60 grid, sticky left column, scrollable right panels
+- All existing components preserved: ThemeSwitcher, AnimatedCounter, Typewriter,
+  FloorPicker, ScenarioChart, CashflowChart
+- All engine integration preserved: client-side TS engines for instant math,
+  /api/gtm and /api/rationale for LLM narration
+- Visual hierarchy: header (57px) > left input form (sticky) > right panels (stacked)
+- The layout now feels like a $500k command center, not a scrolling webpage.
