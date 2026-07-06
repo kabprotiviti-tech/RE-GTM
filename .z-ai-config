@@ -1,0 +1,7 @@
+{
+  "baseUrl": "https://internal-api.z.ai/v1",
+  "apiKey": "Z.ai",
+  "chatId": "chat-f0bfe7b0-f1c8-4176-9ce6-d892052952d9",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiZTE3YzU2Y2QtN2Y0YS00YTUxLTliYjQtM2EzZGViNjlkYmM3IiwiY2hhdF9pZCI6ImNoYXQtZjBiZmU3YjAtZjFjOC00MTc2LTljZTYtZDg5MjA1Mjk1MmQ5IiwicGF0Zm9ybSI6InphaSJ9.mGpFlUniOgcMD3hcoJKF5pvYI_JsLfMs0b_oU0lJKv8",
+  "userId": "e17c56cd-7f4a-4a51-9bb4-3a3deb69dbc7"
+}
