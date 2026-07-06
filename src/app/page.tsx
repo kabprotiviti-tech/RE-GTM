@@ -21,6 +21,7 @@ import { Typewriter } from "@/components/capital-velocity/Typewriter";
 import { FloorPicker } from "@/components/capital-velocity/FloorPicker";
 import { ScenarioChart } from "@/components/capital-velocity/ScenarioChart";
 import { CashflowChart } from "@/components/capital-velocity/CashflowChart";
+import { ScenarioTable } from "@/components/capital-velocity/ScenarioTable";
 import { ConfidenceIndicator } from "@/components/capital-velocity/ConfidenceIndicator";
 import {
   calculateBasePricing,
@@ -721,6 +722,22 @@ export default function Home() {
                 </span>
               </div>
               <CashflowChart data={cashflowData} paymentPlan={paymentPlan} />
+            </div>
+
+            {/* === SCENARIO WAR-GAMING TABLE (Phase 12) === */}
+            <div className="mt-5 pt-4 border-t" style={{ borderColor: "var(--border)" }}>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+                  Scenario War-Gaming Table
+                </span>
+                <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>
+                  Base row highlighted · platinum left border
+                </span>
+              </div>
+              <ScenarioTable
+                scenarios={scenarios}
+                recommendedScenario={scenarioSummary.best_net_scenario}
+              />
             </div>
           </Panel>
 

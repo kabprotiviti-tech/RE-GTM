@@ -973,3 +973,55 @@ Stage Summary:
 - Phase 11: tightened fill to transparent per spec, removed extra series,
   enhanced tooltip styling
 - Both phases browser-verified rendering correctly
+
+---
+Task ID: 16
+Agent: Lead Architect (main)
+Task: Add the Scenario War-Gaming Table below the cashflow chart. 3 scenario rows
+(Aggressive/Base/Conservative), columns: Scenario Name | Price PSF | Proj. Absorption
+Days | Est. Total Revenue. Base row highlighted with 2px platinum left border.
+"AI RECOMMENDED" tag next to the recommended scenario.
+
+Work Log:
+- Created src/components/capital-velocity/ScenarioTable.tsx:
+    * Grid-based table (grid-cols-12) with header row + 3 scenario rows + footer
+    * Header: Scenario (col-span-3) | Price PSF (col-span-2) | Proj. Absorption
+      (col-span-3) | Est. Total Revenue (col-span-4)
+    * Each row has a colored left bar indicator (gold for Aggressive, platinum
+      for Base, green for Conservative)
+    * Base row highlighted with 2px solid platinum (var(--accent)) left border
+      per spec
+    * "AI RECOMMENDED" tag: gold-bordered badge with Sparkles icon, shown next
+      to the scenario with the best net position (from scenarioSummary.best_net_scenario)
+    * Price PSF column: animated counter, color-coded (gold for Aggressive +5%,
+      green for Conservative -3%, heading for Base)
+    * Proj. Absorption column: animated counter with days format + delta %
+    * Est. Total Revenue column: animated AED counter + carry/net sub-line
+    * Footer summary: scenario count + base PSF + spread (PSF + days)
+    * Staggered row entrance animation (Framer Motion, x: -12 → 0, delay i*0.08)
+    * Hover state: row background shifts to surface-raised
+- Added the table to the Capital Velocity panel, below the cashflow chart:
+    * Section header: "Scenario War-Gaming Table"
+    * Subtitle: "Base row highlighted · platinum left border"
+    * Passes scenarios array + scenarioSummary.best_net_scenario as the
+      recommended scenario
+- Lint: clean
+- Browser-verified via DOM text extraction:
+    * "SCENARIO WAR-GAMING TABLE" heading present ✓
+    * "SCENARIO | PRICE PSF | PROJ. ABSORPTION | EST. TOTAL REVENUE" columns ✓
+    * "Aggressive" row with "AI RECOMMENDED" tag ✓
+    * "Base" row present (platinum left border applied via style) ✓
+    * "Conservative" row with price/absorption/revenue values ✓
+    * Footer: "3 SCENARIOS · 2665 PSF BASE · Spread: AED 213/sqft · 32.4 days" ✓
+
+Stage Summary:
+- New component: src/components/capital-velocity/ScenarioTable.tsx
+- Enhanced: Capital Velocity panel in page.tsx — table added below cashflow chart
+- Spec compliance:
+    ✅ 3 scenario rows (Aggressive, Base, Conservative)
+    ✅ Columns: Scenario Name | Price PSF | Proj. Absorption Days | Est. Total Revenue
+    ✅ Base row highlighted with 2px solid platinum left border
+    ✅ "AI RECOMMENDED" tag next to the best-net scenario (gold badge + Sparkles icon)
+- The CEO can now see all 3 scenarios in a single table view, compare prices and
+  absorption timelines, and immediately identify which scenario the AI recommends
+  — all without scrolling through the chart tabs.
