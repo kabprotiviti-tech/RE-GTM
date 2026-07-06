@@ -22,6 +22,7 @@ import { FloorPicker } from "@/components/capital-velocity/FloorPicker";
 import { ScenarioChart } from "@/components/capital-velocity/ScenarioChart";
 import { CashflowChart } from "@/components/capital-velocity/CashflowChart";
 import { ScenarioTable } from "@/components/capital-velocity/ScenarioTable";
+import { GTMPanel } from "@/components/capital-velocity/GTMPanel";
 import { ConfidenceIndicator } from "@/components/capital-velocity/ConfidenceIndicator";
 import {
   calculateBasePricing,
@@ -741,149 +742,23 @@ export default function Home() {
             </div>
           </Panel>
 
-          {/* === PANEL 3: BOARDROOM RATIONALE === */}
-          <Panel
-            icon={<Brain size={14} />}
-            title="Boardroom Rationale"
-            subtitle="McKinsey Partner · GTM Strategy · 200 words"
-            hasData={hasData}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: "var(--gold)" }}>
-                Target Buyer · Positioning · Launch Phasing
-              </span>
-              <button onClick={fetchGTM} disabled={gtmLoading}
-                className="text-[9px] px-2 py-0.5 rounded disabled:opacity-50"
-                style={{ background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
-                {gtmLoading ? "Drafting..." : "Regenerate"}
-              </button>
-            </div>
-
-            {gtmLoading && !gtmNarrative ? (
-              <div className="space-y-2">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="h-3 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: `${80 + Math.random() * 20}%` }} />
-                ))}
-              </div>
-            ) : gtmNarrative ? (
-              <Typewriter text={gtmNarrative} speed={24} className="text-sm leading-relaxed whitespace-pre-wrap" />
-            ) : (
-              <div className="text-sm" style={{ color: "var(--text-muted)" }}>Adjust parameters to generate GTM strategy.</div>
-            )}
-
-            {/* Anti-hallucination footer */}
-            <div className="mt-4 pt-3 border-t flex items-center gap-2" style={{ borderColor: "var(--border)" }}>
-              <Calculator size={10} style={{ color: "var(--gold)" }} />
-              <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
-                Anti-Hallucination Protocol — every figure traces to deterministic JSON
-              </span>
-            </div>
-
-            {/* === STRUCTURED JSON OUTPUT (Phase 13) === */}
-            <div
-              className="mt-6 p-4 rounded-lg border"
-              style={{ background: "var(--surface)", borderColor: "var(--border)" }}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[9px] font-semibold uppercase tracking-[0.15em]" style={{ color: "var(--gold)" }}>
-                  Structured JSON Output · Schema-Gated
-                </span>
-                <div className="flex items-center gap-2">
-                  {/* Schema gate badge */}
-                  {structuredOutput && (
-                    <span
-                      className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
-                      style={{
-                        color: structuredOutput._schema_gate_passed ? "var(--positive)" : "var(--negative)",
-                        border: `1px solid ${structuredOutput._schema_gate_passed ? "var(--positive)" : "var(--negative)"}`,
-                      }}
-                    >
-                      {structuredOutput._schema_gate_passed ? "JSON Valid" : "JSON Invalid"}
-                    </span>
-                  )}
-                  <button
-                    onClick={fetchStructured}
-                    disabled={structuredLoading}
-                    className="text-[9px] px-2 py-0.5 rounded disabled:opacity-50"
-                    style={{ background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
-                  >
-                    {structuredLoading ? "Generating..." : "Regenerate"}
-                  </button>
-                </div>
-              </div>
-
-              {/* Structured output fields */}
-              {structuredLoading && !structuredOutput ? (
-                <div className="space-y-2">
-                  <div className="h-3 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: "60%" }} />
-                  <div className="h-3 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: "90%" }} />
-                  <div className="h-3 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: "30%" }} />
-                </div>
-              ) : structuredOutput?._schema_gate_passed ? (
-                <div className="space-y-3">
-                  {/* target_persona */}
-                  <div className="flex items-start gap-3">
-                    <span className="text-[10px] font-mono font-semibold uppercase tracking-wider mt-0.5 w-28 flex-shrink-0" style={{ color: "var(--text-muted)" }}>
-                      target_persona
-                    </span>
-                    <span className="text-xs" style={{ color: "var(--text-heading)" }}>
-                      {structuredOutput.target_persona}
-                    </span>
-                  </div>
-                  {/* rationale */}
-                  <div className="flex items-start gap-3">
-                    <span className="text-[10px] font-mono font-semibold uppercase tracking-wider mt-0.5 w-28 flex-shrink-0" style={{ color: "var(--text-muted)" }}>
-                      rationale
-                    </span>
-                    <span className="text-xs italic leading-relaxed" style={{ color: "var(--text-body)" }}>
-                      {structuredOutput.rationale}
-                    </span>
-                  </div>
-                  {/* risk_flag */}
-                  <div className="flex items-start gap-3">
-                    <span className="text-[10px] font-mono font-semibold uppercase tracking-wider mt-0.5 w-28 flex-shrink-0" style={{ color: "var(--text-muted)" }}>
-                      risk_flag
-                    </span>
-                    <span
-                      className="text-xs font-bold px-2 py-0.5 rounded"
-                      style={{
-                        color: structuredOutput.risk_flag ? "var(--negative)" : "var(--positive)",
-                        background: structuredOutput.risk_flag
-                          ? "color-mix(in srgb, var(--negative) 12%, transparent)"
-                          : "color-mix(in srgb, var(--positive) 12%, transparent)",
-                        border: `1px solid ${structuredOutput.risk_flag ? "var(--negative)" : "var(--positive)"}`,
-                      }}
-                    >
-                      {structuredOutput.risk_flag ? "true — risk detected" : "false — no risk"}
-                    </span>
-                  </div>
-                </div>
-              ) : structuredOutput ? (
-                <div className="text-xs" style={{ color: "var(--negative)" }}>
-                  ⚠ {structuredOutput._error || "Schema gate failed — LLM output did not match the required JSON shape."}
-                </div>
-              ) : (
-                <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  Adjust parameters to generate structured output.
-                </div>
-              )}
-
-              {/* Raw JSON audit (collapsible) */}
-              {structuredOutput?._raw_llm_output && (
-                <details className="mt-3 pt-3 border-t" style={{ borderColor: "var(--border)" }}>
-                  <summary className="text-[9px] cursor-pointer uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
-                    View raw LLM output (audit trail)
-                  </summary>
-                  <pre
-                    className="mt-2 p-2 rounded text-[10px] font-mono overflow-x-auto"
-                    style={{ background: "var(--ground)", color: "var(--text-body)", border: "1px solid var(--border)" }}
-                  >
-                    {structuredOutput._raw_llm_output}
-                  </pre>
-                </details>
-              )}
-            </div>
-          </Panel>
+          {/* === PANEL 3: GO-TO-MARKET STRATEGY & BUYER PERSONA (Phase 13+14) === */}
+          <GTMPanel
+            narrative={gtmNarrative}
+            loading={gtmLoading}
+            onRefresh={fetchGTM}
+            structuredOutput={structuredOutput}
+            projectName={projectName}
+            pricingData={{
+              floor_psf: activePricing.floor_psf,
+              optimal_psf: activePricing.optimal_psf,
+              ceiling_psf: activePricing.ceiling_psf,
+              estimated_unit_price: activePricing.estimated_unit_price,
+              confidence: basePricing.data_confidence,
+            }}
+            scenarioData={scenarios}
+            cashflowSummary={cashflowSummary}
+          />
         </section>
       </main>
     </div>

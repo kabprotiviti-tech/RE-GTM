@@ -1025,3 +1025,71 @@ Stage Summary:
 - The CEO can now see all 3 scenarios in a single table view, compare prices and
   absorption timelines, and immediately identify which scenario the AI recommends
   — all without scrolling through the chart tabs.
+
+---
+Task ID: 17
+Agent: Lead Architect (main)
+Task: Phase 13 — Create collapsible GTM Strategy panel with markdown rendering.
+Phase 14 — Export to Board feature (download boardroom brief as markdown).
+
+Work Log:
+- Created src/components/capital-velocity/GTMPanel.tsx:
+    * Collapsible panel with animated expand/collapse (Framer Motion height auto)
+    * Title: "Go-To-Market Strategy & Buyer Persona"
+    * Subtitle: "McKinsey Partner · GTM Strategy · 200 words · Markdown-rendered"
+    * Chevron icon rotates 180° on expand/collapse
+    * Markdown rendering via react-markdown with custom component overrides:
+        - h1/h2/h3 → themed headings (gold for h3, heading color for h1/h2)
+        - p → body color, mb-3 spacing
+        - strong → heading color, font-weight 600
+        - em → gold color
+        - ul/ol → themed lists with gold bullet dots
+        - li → body color with gold marker
+        - blockquote → gold left border, italic
+        - code → monospace, surface-raised bg, gold text
+    * Structured JSON output section (from Phase 13) integrated:
+        - target_persona, rationale, risk_flag fields
+        - JSON Valid/Invalid badge
+    * "EXPORT TO BOARD" button in the panel header — gold-bordered, Download icon
+    * Secondary ".md" export button in the footer
+    * Anti-hallucination protocol footer with FileText icon
+- Implemented buildBoardBrief() function — generates a full boardroom brief:
+    * # Project Name header
+    * ## Boardroom Brief — Capital Velocity Analysis
+    * Generated timestamp + CONFIDENTIAL classification
+    * Section 1: Pricing Architecture (Floor/Optimal/Ceiling table)
+    * Section 2: Scenario War-Gaming (3-row table with all metrics)
+    * Section 3: Cashflow Summary (downpayment, mid-build, handover, total)
+    * Section 4: Go-To-Market Strategy (full LLM narrative)
+    * Section 5: Structured AI Output (target_persona, rationale, risk_flag)
+    * Anti-Hallucination Protocol certification footer
+    * Engine versions audit trail
+- Export mechanism: Blob + URL.createObjectURL + anchor download
+    * Filename: {ProjectName}_Board_Brief.md
+    * MIME type: text/markdown;charset=utf-8
+- Replaced the old Boardroom Rationale panel in page.tsx with the new GTMPanel
+- Lint: clean
+- Browser-verified via DOM:
+    * "Go-To-Market Strategy & Buyer Persona" title ✓
+    * "EXPORT TO BOARD" button visible and clickable ✓
+    * "TARGET BUYER · POSITIONING · LAUNCH PHASING" subtitle ✓
+    * "Regenerate" button ✓
+    * Collapsible chevron ✓
+    * Structured output section ✓
+    * ".md" export button in footer ✓
+
+Stage Summary:
+- New component: src/components/capital-velocity/GTMPanel.tsx
+- Replaced: Boardroom Rationale panel → GTMPanel (collapsible + markdown + export)
+- Phase 13 spec compliance:
+    ✅ Collapsible panel at bottom of Right Column
+    ✅ Titled "Go-To-Market Strategy & Buyer Persona"
+    ✅ Renders Phase 6 LLM output with react-markdown
+    ✅ Bullet points and bold text render beautifully
+- Phase 14 spec compliance:
+    ✅ "Export to Board" feature — downloads boardroom brief as markdown
+    ✅ Brief includes all sections: pricing, scenarios, cashflow, GTM, structured output
+    ✅ Anti-hallucination protocol certification in the exported brief
+- The CEO can now collapse the GTM panel when focusing on numbers, expand it to
+  read the strategy, and export the full analysis as a markdown file for
+  boardroom distribution.
