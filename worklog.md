@@ -935,3 +935,41 @@ Stage Summary:
 - Every LLM output is parsed and type-checked before display. Invalid JSON,
   missing keys, or wrong types trigger the "JSON Invalid" badge with the error
   message visible to the CEO.
+
+---
+Task ID: 15
+Agent: Lead Architect (main)
+Task: Verify and tighten Phase 10 (Pricing Matrix) and Phase 11 (Capital Velocity
+Chart) to match spec exactly.
+
+Work Log:
+- Phase 10 already implemented (Task ID 11) — verified still rendering:
+    * Floor/Optimal/Ceiling PSF in text-3xl font-bold Inter ✓
+    * Confidence Indicator bar (green/yellow/red) ✓
+    * LLM Rationale in italicized gray text ✓
+- Phase 11 Capital Velocity Chart — tightened to match spec exactly:
+    * Changed fill from gradient (stopOpacity 0.5→0.02) to fill="transparent"
+      per spec ("Fill: Transparent")
+    * Removed the second Area (monthly_cash_collected) — spec only asks for
+      the cumulative_cash_collected array
+    * Kept Muted Gold stroke (#D4AF37 via var(--gold)) ✓
+    * Kept dark gray grid lines (var(--chart-grid)) ✓
+    * Kept custom dark-theme tooltip styling (no default tooltips) ✓
+    * Added activeDot with gold fill + ground-colored stroke for hover
+    * Added cursor line with gold dashed stroke for hover guidance
+    * Enhanced tooltip: boxShadow, border-strong, itemStyle in gold
+- Lint: clean
+- Browser-verified:
+    * Pricing Matrix: Floor AED 2,558 / Optimal AED 2,665 / Ceiling AED 2,985
+    * Confidence bar: red (Low, 1 comp)
+    * Chart SVG: 662x240, Recharts surface confirmed
+    * X-axis: M0, M4, M8... M36
+    * Y-axis: AED scale
+    * Month 0 callout: AED 319,800 (Downpayment)
+    * Handover callout: AED 2,656,117
+
+Stage Summary:
+- Phase 10: verified live, no changes needed
+- Phase 11: tightened fill to transparent per spec, removed extra series,
+  enhanced tooltip styling
+- Both phases browser-verified rendering correctly
