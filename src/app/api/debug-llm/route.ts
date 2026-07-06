@@ -2,46 +2,42 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 
 export async function GET() {
-  const hasKey = !!process.env.ANTHROPIC_API_KEY;
-  const keyPrefix = process.env.ANTHROPIC_API_KEY?.substring(0, 15) || "not set";
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return NextResponse.json({ error: "ANTHROPIC_API_KEY not set" });
 
-  if (!hasKey) {
-    return NextResponse.json({ error: "ANTHROPIC_API_KEY not set" });
+  const client = new Anthropic({ apiKey });
+
+  // Try multiple model names
+  const models = [
+    "claude-3-5-sonnet-latest",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-latest",
+    "claude-3-haiku-20240307",
+    "claude-3-sonnet-20240229",
+    "claude-3-opus-20240229",
+    "claude-sonnet-4-20250514",
+    "claude-3-5-sonnet-20240620",
+  ];
+
+  const results = [];
+
+  for (const model of models) {
+    try {
+      const response = await client.messages.create({
+        model,
+        max_tokens: 10,
+        messages: [{ role: "user", content: "Hi" }],
+      });
+      const text = response.content
+        .filter((b: any) => b.type === "text")
+        .map((b: any) => b.text)
+        .join("");
+      results.push({ model, success: true, response: text.substring(0, 50) });
+      break; // Stop on first success
+    } catch (e: any) {
+      results.push({ model, success: false, error: e.message?.substring(0, 100) });
+    }
   }
 
-  // Try an actual Claude call
-  try {
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
-
-    const response = await client.messages.create({
-      model,
-      max_tokens: 50,
-      system: "You are a helpful assistant. Reply in one word.",
-      messages: [{ role: "user", content: "Say hello" }],
-    });
-
-    const text = response.content
-      .filter((block: any) => block.type === "text")
-      .map((block: any) => block.text)
-      .join("");
-
-    return NextResponse.json({
-      anthropic_key_set: true,
-      key_prefix: keyPrefix + "...",
-      model,
-      claude_response: text,
-      success: true,
-    });
-  } catch (error: any) {
-    return NextResponse.json({
-      anthropic_key_set: true,
-      key_prefix: keyPrefix + "...",
-      model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514",
-      success: false,
-      error: error.message,
-      error_type: error.constructor.name,
-      status: error.status || "N/A",
-    });
-  }
+  return NextResponse.json({ key_set: true, results });
 }
