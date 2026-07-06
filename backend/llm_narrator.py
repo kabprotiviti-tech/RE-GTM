@@ -357,6 +357,122 @@ def generate_pricing_rationale(
 
 
 # ---------------------------------------------------------------------------
+# PHASE 12: SCHEMA-GATED NARRATOR — Zero Hallucination Propagation
+# ---------------------------------------------------------------------------
+
+# The schema gate is imported lazily so the module doesn't hard-fail if
+# pydantic isn't installed in the runtime environment.
+try:
+    from schemas import PricingOutput, safe_validate_pricing_for_llm
+    _SCHEMA_GATE_AVAILABLE = True
+except ImportError:
+    _SCHEMA_GATE_AVAILABLE = False
+
+
+# Locked system prompt for the schema-gated narrator — enforces the exact
+# PricingOutput schema as the ONLY source of truth.
+SCHEMA_GATED_SYSTEM_PROMPT = (
+    "You are a Senior Partner at McKinsey presenting to the CEO of Emaar. "
+    "You are given a PricingOutput JSON object with EXACTLY four fields: "
+    "floor_psf (int), optimal_psf (int), ceiling_psf (int), confidence (string). "
+    "Using ONLY these four values, write a 100-word executive summary of the "
+    "pricing recommendation. Cite the exact PSF values and the confidence level. "
+    "Do NOT invent, estimate, or compute any number. Do NOT reference any field "
+    "not present in the PricingOutput. If a value is missing, omit that point."
+)
+
+SCHEMA_GATED_USER_PROMPT_TEMPLATE = """PRICING OUTPUT (Pydantic-validated — these are the ONLY values you may reference):
+{pricing_json}
+
+Write the 100-word executive summary now. You may ONLY cite:
+  - floor_psf: {floor_psf}
+  - optimal_psf: {optimal_psf}
+  - ceiling_psf: {ceiling_psf}
+  - confidence: {confidence}
+
+Any number in your response that is not one of these four values is a hallucination."""
+
+
+def generate_narrative(pricing_data) -> str:
+    """
+    Schema-gated narrator function. Accepts a PricingOutput Pydantic object
+    (NOT a raw dict) and generates a 100-word executive summary.
+
+    ZERO HALLUCINATION PROPAGATION CONTRACT:
+    - The caller MUST pass a validated PricingOutput object. If they pass a
+      raw dict, we attempt validation here as a safety net.
+    - If validation fails, the LLM is NEVER called. Returns a fallback string.
+    - The LLM receives ONLY the four validated fields. No extra context.
+    - The prompt explicitly forbids referencing any number not in the schema.
+
+    Args:
+        pricing_data: A PricingOutput Pydantic object (preferred) or a dict
+            that can be validated against PricingOutput.
+
+    Returns:
+        str: The LLM-generated 100-word executive summary. On schema validation
+        failure, returns [SCHEMA GATE FAILED] with the error. On LLM failure,
+        returns [NARRATOR UNAVAILABLE] with the validated JSON preserved.
+    """
+    # --- Schema gate: validate before anything else -----------------------------
+    if not _SCHEMA_GATE_AVAILABLE:
+        return (
+            "[SCHEMA GATE UNAVAILABLE]\n\n"
+            "pydantic schemas module not importable. Cannot guarantee "
+            "hallucination-free narration. Refusing to call the LLM."
+        )
+
+    # If the caller passed a raw dict, validate it as a safety net
+    if isinstance(pricing_data, dict):
+        validated, error = safe_validate_pricing_for_llm(pricing_data)
+        if validated is None:
+            return (
+                f"[SCHEMA GATE FAILED]\n\n"
+                f"The math engine produced invalid data. The LLM was NOT called.\n"
+                f"Error: {error}\n\n"
+                f"Raw data: {json.dumps(pricing_data, indent=2, default=str)}"
+            )
+        pricing_data = validated
+
+    # If it's already a PricingOutput, we trust it (it was validated at construction)
+    if not hasattr(pricing_data, "floor_psf"):
+        return (
+            "[SCHEMA GATE FAILED]\n\n"
+            f"Expected PricingOutput object or dict, got {type(pricing_data).__name__}. "
+            "The LLM was NOT called."
+        )
+
+    # --- Build the prompt with ONLY the four validated fields -------------------
+    pricing_dict = {
+        "floor_psf": pricing_data.floor_psf,
+        "optimal_psf": pricing_data.optimal_psf,
+        "ceiling_psf": pricing_data.ceiling_psf,
+        "confidence": pricing_data.confidence,
+    }
+
+    user_prompt = SCHEMA_GATED_USER_PROMPT_TEMPLATE.format(
+        pricing_json=json.dumps(pricing_dict, indent=2),
+        floor_psf=pricing_data.floor_psf,
+        optimal_psf=pricing_data.optimal_psf,
+        ceiling_psf=pricing_data.ceiling_psf,
+        confidence=pricing_data.confidence,
+    )
+
+    # --- Call the LLM -----------------------------------------------------------
+    narrative = _call_llm_cli(SCHEMA_GATED_SYSTEM_PROMPT, user_prompt)
+
+    if narrative is None:
+        return (
+            "[NARRATOR UNAVAILABLE]\n\n"
+            "The LLM could not be reached, but the schema gate passed. "
+            "The validated PricingOutput is preserved:\n\n"
+            f"{json.dumps(pricing_dict, indent=2)}"
+        )
+
+    return narrative
+
+
+# ---------------------------------------------------------------------------
 # Standalone self-validation
 #   Run:  python backend/llm_narrator.py
    # Confirms the prompt assembly, CLI plumbing, and fallback path.

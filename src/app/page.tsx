@@ -87,19 +87,38 @@ export default function Home() {
   );
 
   // Active pricing output based on the selected method
+  // PSF values are rounded to integers — the PricingOutput schema uses StrictInt
+  // (per Phase 12 spec). Floats would fail the schema gate.
   const activePricing = pricingMethod === "hedonic" ? {
-    floor_psf: hedonicPricing.floor,
-    optimal_psf: hedonicPricing.optimal,
-    ceiling_psf: hedonicPricing.ceiling,
-    estimated_unit_price: hedonicPricing.optimal * sqft,
+    floor_psf: Math.round(hedonicPricing.floor),
+    optimal_psf: Math.round(hedonicPricing.optimal),
+    ceiling_psf: Math.round(hedonicPricing.ceiling),
+    estimated_unit_price: Math.round(hedonicPricing.optimal * sqft),
     method: "hedonic" as const,
   } : {
-    floor_psf: microPricing.final_floor_psf,
-    optimal_psf: microPricing.final_optimal_psf,
-    ceiling_psf: microPricing.final_ceiling_psf,
-    estimated_unit_price: microPricing.estimated_unit_price,
+    floor_psf: microPricing.final_floor_psf != null ? Math.round(microPricing.final_floor_psf) : null,
+    optimal_psf: microPricing.final_optimal_psf != null ? Math.round(microPricing.final_optimal_psf) : null,
+    ceiling_psf: microPricing.final_ceiling_psf != null ? Math.round(microPricing.final_ceiling_psf) : null,
+    estimated_unit_price: microPricing.estimated_unit_price != null ? Math.round(microPricing.estimated_unit_price) : null,
     method: "weighted" as const,
   };
+
+  // --- Schema gate validation (Phase 12) -------------------------------------
+  // Mirrors the Pydantic PricingOutput schema: StrictInt for PSF, StrictStr
+  // for confidence with exact enum validation. If this fails, the LLM must
+  // NOT be called — zero hallucination propagation.
+  const schemaGateValid = useMemo(() => {
+    const psfValues = [activePricing.floor_psf, activePricing.optimal_psf, activePricing.ceiling_psf];
+    // All PSF must be non-null integers
+    const allInts = psfValues.every((v) => v != null && Number.isInteger(v));
+    if (!allInts) return { passed: false, error: "PSF values must be strict integers (not null, not float)" };
+    // Confidence must be exactly "High", "Medium", or "Low"
+    const conf = basePricing.data_confidence;
+    if (!["High", "Medium", "Low"].includes(conf)) {
+      return { passed: false, error: `Invalid confidence: ${conf}. Must be High/Medium/Low` };
+    }
+    return { passed: true, error: null };
+  }, [activePricing, basePricing.data_confidence]);
   const compsUsed = useMemo(
     () => MOCK_COMPS.filter((c) => c.unit_type === unitType && c.view === macroView),
     [unitType, macroView]
@@ -412,8 +431,8 @@ export default function Home() {
             }
             hasData={hasData}
           >
-            {/* Method badge */}
-            <div className="flex items-center gap-2 mb-4">
+            {/* Method badge + Schema gate badge */}
+            <div className="flex items-center gap-2 mb-4 flex-wrap">
               <span
                 className="text-[9px] font-bold uppercase tracking-[0.15em] px-2 py-1 rounded"
                 style={{
@@ -428,6 +447,23 @@ export default function Home() {
                 {pricingMethod === "hedonic"
                   ? "Regression-based — not a simple average"
                   : "Phase 2 method — absorption-weighted"}
+              </span>
+
+              {/* Schema gate badge — Phase 12 zero hallucination propagation */}
+              <span
+                className="text-[9px] font-bold uppercase tracking-[0.15em] px-2 py-1 rounded ml-auto flex items-center gap-1.5"
+                style={{
+                  background: schemaGateValid.passed ? "color-mix(in srgb, var(--positive) 12%, transparent)" : "color-mix(in srgb, var(--negative) 12%, transparent)",
+                  color: schemaGateValid.passed ? "var(--positive)" : "var(--negative)",
+                  border: `1px solid ${schemaGateValid.passed ? "var(--positive)" : "var(--negative)"}`,
+                }}
+                title={schemaGateValid.error || "PricingOutput schema validated — LLM may be called"}
+              >
+                <div
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{ background: schemaGateValid.passed ? "var(--positive)" : "var(--negative)" }}
+                />
+                {schemaGateValid.passed ? "Schema Gate: Passed" : "Schema Gate: FAILED"}
               </span>
             </div>
 

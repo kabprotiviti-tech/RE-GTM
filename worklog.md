@@ -778,3 +778,89 @@ Stage Summary:
   floor_coefficient*floor + amenity_coefficient*amenity_score
 - The user can now toggle between two pricing methodologies and see the
   full decomposition + audit trail for each.
+
+---
+Task ID: 13
+Agent: Lead Architect (main)
+Task: Implement the Pydantic PricingOutput schema gate — zero hallucination
+propagation. StrictInt for PSF, StrictStr for confidence with exact enum
+validation. The LLM must NEVER be called with invalid data.
+
+Work Log:
+- Created backend/schemas.py with the EXACT spec:
+    class PricingOutput(BaseModel):
+        floor_psf: StrictInt
+        optimal_psf: StrictInt
+        ceiling_psf: StrictInt
+        confidence: StrictStr  # Must be exactly "High", "Medium", or "Low"
+
+        @field_validator("confidence")
+        def validate_confidence(cls, v):
+            if v not in ["High", "Medium", "Low"]:
+                raise ValueError("Invalid confidence state")
+            return v
+
+        model_config = ConfigDict(extra="forbid", validate_assignment=True)
+- Used Pydantic V2 syntax (field_validator + ConfigDict) — no deprecation warnings.
+- StrictInt rejects: None, floats, strings, booleans. Only integers pass.
+- StrictStr rejects: None, numbers. Only strings pass.
+- extra="forbid" rejects any field not in the schema — the LLM never sees
+  unexpected data.
+- validate_assignment=True ensures validation runs on field assignment too,
+  not just on init.
+- Added safe_validate_pricing_for_llm() — returns (validated, error) tuple,
+  never raises. Used by the orchestrator to gracefully handle failures.
+- Self-validation: 9 test cases (3 valid, 6 invalid) — all pass:
+    Valid: {floor: 2671, optimal: 2866, ceiling: 3116, confidence: "Medium"} ✓
+    Valid: confidence "High" ✓
+    Valid: confidence "Low" ✓
+    Invalid: None PSF → rejected (int_type error) ✓
+    Invalid: float PSF → rejected (StrictInt) ✓
+    Invalid: confidence "None" → rejected (validator) ✓
+    Invalid: confidence "medium" (lowercase) → rejected (validator) ✓
+    Invalid: extra field → rejected (extra="forbid") ✓
+    Invalid: missing field → rejected (required) ✓
+- Added generate_narrative(pricing_data) to llm_narrator.py:
+    * Accepts a PricingOutput Pydantic object (NOT a raw dict)
+    * If caller passes a dict, validates as safety net
+    * If validation fails → returns [SCHEMA GATE FAILED], LLM NOT called
+    * LLM receives ONLY the 4 validated fields, no extra context
+    * Prompt explicitly forbids referencing any number not in the schema
+- Created /api/schema-gated-narrative API route (TypeScript port):
+    * Mirrors the Pydantic schema in TypeScript
+    * validatePricingOutput() checks StrictInt + confidence enum + no extra fields
+    * If gate fails → returns [SCHEMA GATE FAILED], llm_called: false
+    * If gate passes → calls LLM with only the 4 validated fields
+- Added schema gate badge to the Pricing Matrix panel UI:
+    * Green "Schema Gate: Passed" badge when validation succeeds
+    * Red "Schema Gate: FAILED" badge when validation fails
+    * Tooltip shows the error or success message
+    * Badge updates live as the user changes inputs
+- Fixed PSF rounding: activePricing now rounds to integers (Math.round) because
+  the hedonic engine produces floats (2665.00) but PricingOutput requires
+  StrictInt. This is the correct behavior — PSF in AED doesn't need decimal
+  precision for the LLM narrative, and the schema enforces integers.
+- End-to-end test (Python): 4 cases — 1 valid (LLM called, clean 100-word
+  summary), 3 invalid (LLM NOT called, [SCHEMA GATE FAILED] returned):
+    Valid: {2671, 2866, 3116, "Medium"} → LLM called → "Our pricing analysis
+           recommends a range of 2,671 to 3,116 PSF, with an optimal point of
+           2,866 PSF. The confidence level for this recommendation is Medium..."
+    Invalid (None): gate held, LLM not called ✓
+    Invalid (float): gate held, LLM not called ✓
+    Invalid (lowercase): gate held, LLM not called ✓
+- Lint: clean. Browser-verified: green "Schema Gate: Passed" badge visible.
+
+Stage Summary:
+- New files:
+    backend/schemas.py — Pydantic PricingOutput + validation helpers
+    src/app/api/schema-gated-narrative/route.ts — TypeScript schema gate endpoint
+- Enhanced:
+    backend/llm_narrator.py — added generate_narrative(pricing_data: PricingOutput)
+    src/app/page.tsx — schema gate badge + integer rounding for PSF values
+- The schema gate is now the HARD CONTRACT between math and LLM:
+    Math engine → raw dict → validate against PricingOutput →
+      ✓ pass → LLM receives only 4 validated fields
+      ✗ fail → LLM NOT called, [SCHEMA GATE FAILED] returned
+- Zero hallucination propagation: the LLM can never receive None values,
+  float PSF, invalid confidence strings, extra fields, or missing fields.
+  Pydantic throws BEFORE the LLM is called.
