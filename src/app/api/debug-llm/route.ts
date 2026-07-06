@@ -12,7 +12,7 @@ export async function GET() {
   // Try an actual Claude call
   try {
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    const model = process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022";
+    const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
 
     const response = await client.messages.create({
       model,
@@ -37,7 +37,7 @@ export async function GET() {
     return NextResponse.json({
       anthropic_key_set: true,
       key_prefix: keyPrefix + "...",
-      model: process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022",
+      model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514",
       success: false,
       error: error.message,
       error_type: error.constructor.name,

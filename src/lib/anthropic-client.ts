@@ -38,7 +38,7 @@ export async function callClaude(
   }
 
   try {
-    const model = process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022";
+    const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514";
     const response = await client.messages.create({
       model,
       max_tokens: maxTokens,
