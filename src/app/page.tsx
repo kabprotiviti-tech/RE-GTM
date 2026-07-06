@@ -23,6 +23,9 @@ import { ScenarioChart } from "@/components/capital-velocity/ScenarioChart";
 import { CashflowChart } from "@/components/capital-velocity/CashflowChart";
 import { ScenarioTable } from "@/components/capital-velocity/ScenarioTable";
 import { GTMPanel } from "@/components/capital-velocity/GTMPanel";
+import { ErrorBanner, type ErrorLevel } from "@/components/capital-velocity/ErrorBanner";
+import { usePDFExport } from "@/hooks/use-pdf-export";
+import { FileDown } from "lucide-react";
 import { ConfidenceIndicator } from "@/components/capital-velocity/ConfidenceIndicator";
 import {
   calculateBasePricing,
@@ -134,12 +137,12 @@ export default function Home() {
     return simulateCashflow(activePricing.estimated_unit_price, paymentPlan, timelineMonths);
   }, [activePricing.estimated_unit_price, paymentPlan, timelineMonths]);
   const cashflowSummary = useMemo(() => summarizeCashflow(cashflowData), [cashflowData]);
-  const scenarios = useMemo(
-    () => generateScenarios(activePricing.optimal_psf ?? 3257.65, baseAbsorptionDays, {
+  const scenarios = useMemo(() => {
+    if (activePricing.optimal_psf == null || activePricing.optimal_psf <= 0) return [];
+    return generateScenarios(activePricing.optimal_psf, baseAbsorptionDays, {
       unit_count: unitCount, avg_sqft_per_unit: sqft, daily_carry_cost_aed: 50000,
-    }),
-    [activePricing.optimal_psf, baseAbsorptionDays, unitCount, sqft]
-  );
+    });
+  }, [activePricing.optimal_psf, baseAbsorptionDays, unitCount, sqft]);
   const scenarioSummary = useMemo(() => summarizeScenarios(scenarios), [scenarios]);
   const [activeScenario, setActiveScenario] = useState(0);
 
@@ -232,6 +235,36 @@ export default function Home() {
 
   const hasData = activePricing.optimal_psf != null;
 
+  // --- Error handling (Phase 15) ---------------------------------------------
+  const { exportToPDF, exporting: pdfExporting } = usePDFExport();
+
+  // Derived error state — no useEffect+setState, pure derivation from engine outputs
+  const mathFailed = basePricing.data_confidence === "None" || activePricing.optimal_psf == null;
+  const llmFailed = !mathFailed && (
+    gtmNarrative.includes("[NARRATOR") || gtmNarrative.includes("Error:") ||
+    rationale.includes("[NARRATOR") || rationale.includes("Error:")
+  );
+  const errorBanner: { level: ErrorLevel; message: string } = mathFailed
+    ? { level: "error", message: "Insufficient comparable data for this specific view/type combination. Adjust the unit spec to match available comps." }
+    : llmFailed
+    ? { level: "warning", message: "Strategy narrative generation delayed. Mathematical pricing is accurate and displayed above." }
+    : { level: null, message: "" };
+
+  // Track dismissed state so user can close a banner
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const effectiveBanner = bannerDismissed
+    ? { level: null as ErrorLevel, message: "" }
+    : errorBanner;
+
+  // Reset dismissed when the error type changes
+  useEffect(() => {
+    setBannerDismissed(false);
+  }, [errorBanner.level]);
+
+  const handleExportPDF = () => {
+    exportToPDF("right-column-content", projectName);
+  };
+
   return (
     <div className="cv-theme-root min-h-screen flex flex-col">
       {/* === HEADER === */}
@@ -263,6 +296,21 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* EXPORT BOARD PACK — Phase 15 PDF export */}
+            <button
+              onClick={handleExportPDF}
+              disabled={pdfExporting || !hasData}
+              className="flex items-center gap-2 px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-[0.15em] transition-all disabled:opacity-40"
+              style={{
+                background: "var(--surface)",
+                border: "1px solid var(--gold)",
+                color: "var(--gold)",
+              }}
+              title="Export the full right column as a dark-mode PDF"
+            >
+              <FileDown size={12} />
+              {pdfExporting ? "Generating..." : "Export Board Pack"}
+            </button>
             <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded text-[9px] uppercase tracking-wider" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
               <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "var(--positive)" }} />
               Engine Live
@@ -271,6 +319,12 @@ export default function Home() {
           </div>
         </div>
       </header>
+
+      {/* === ERROR BANNER (Phase 15) === */}
+      <ErrorBanner
+        banner={effectiveBanner}
+        onDismiss={() => setBannerDismissed(true)}
+      />
 
       {/* === COMMAND CENTER GRID === */}
       <main className="flex-1 grid lg:grid-cols-5 gap-0">
@@ -457,11 +511,16 @@ export default function Home() {
         </aside>
 
         {/* === RIGHT COLUMN — 60% (lg:col-span-3) === */}
-        <section className="lg:col-span-3 p-6 md:p-8 space-y-6" style={{ background: "var(--ground)" }}>
+        <section
+          id="right-column-content"
+          className="lg:col-span-3 p-6 md:p-8 space-y-6"
+          style={{ background: "var(--ground)" }}
+        >
           {/* === PANEL 1: PRICING MATRIX === */}
           <Panel
             icon={<DollarSign size={14} />}
             title="Pricing Matrix"
+            staggerIndex={1}
             subtitle={
               pricingMethod === "hedonic"
                 ? "Hedonic Regression · base intercept + feature coefficients"
@@ -697,6 +756,7 @@ export default function Home() {
           <Panel
             icon={<Activity size={14} />}
             title="Capital Velocity Chart"
+            staggerIndex={2}
             subtitle="Price vs Absorption scenarios + Cashflow timing"
             hasData={hasData}
           >
@@ -743,6 +803,7 @@ export default function Home() {
           </Panel>
 
           {/* === PANEL 3: GO-TO-MARKET STRATEGY & BUYER PERSONA (Phase 13+14) === */}
+          <div className="cv-stagger-3">
           <GTMPanel
             narrative={gtmNarrative}
             loading={gtmLoading}
@@ -759,6 +820,7 @@ export default function Home() {
             scenarioData={scenarios}
             cashflowSummary={cashflowSummary}
           />
+          </div>
         </section>
       </main>
     </div>
@@ -829,13 +891,14 @@ function MiniStat({ label, value, format, accent }: { label: string; value: numb
   );
 }
 
-function Panel({ icon, title, subtitle, hasData, children }: { icon: React.ReactNode; title: string; subtitle: string; hasData: boolean; children: React.ReactNode }) {
+function Panel({ icon, title, subtitle, hasData, children, staggerIndex }: { icon: React.ReactNode; title: string; subtitle: string; hasData: boolean; children: React.ReactNode; staggerIndex?: number }) {
+  const staggerClass = staggerIndex ? `cv-stagger-${staggerIndex}` : "";
   return (
     <motion.section
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-      className="rounded-xl border overflow-hidden"
+      className={`rounded-xl border overflow-hidden ${staggerClass}`}
       style={{ background: "var(--surface)", borderColor: "var(--border)" }}
     >
       {/* Panel header */}

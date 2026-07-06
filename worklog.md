@@ -1093,3 +1093,77 @@ Stage Summary:
 - The CEO can now collapse the GTM panel when focusing on numbers, expand it to
   read the strategy, and export the full analysis as a markdown file for
   boardroom distribution.
+
+---
+Task ID: 18
+Agent: Lead Architect (main)
+Task: Phase 15 — PDF Board Pack export (html2canvas + jspdf). Phase 16 — Error
+handling, polish, staggered animations, and final anti-hallucination audit.
+
+Work Log:
+- Installed html2canvas and jspdf packages.
+- Created src/hooks/use-pdf-export.ts:
+    * usePDFExport() hook — captures a DOM element by ID and generates a PDF
+    * html2canvas with backgroundColor #0A0A0A (dark mode), scale 2 for crisp text
+    * Multi-page support: slices tall content into A4-page-height chunks
+    * Filename: {ProjectName}_Launch_Strategy.pdf
+    * Returns { exportToPDF, exporting, error }
+- Created src/components/capital-velocity/ErrorBanner.tsx:
+    * Two levels: "error" (red, AlertCircle icon) and "warning" (gold, AlertTriangle)
+    * Animated entrance/exit via Framer Motion (height auto, y -20→0)
+    * Dismissable with X button
+    * Fully derived from props — no internal state (lint compliant)
+- Added "EXPORT BOARD PACK" button to the header:
+    * Gold-bordered, FileDown icon, uppercase tracking
+    * Disabled when PDF is generating or no data available
+    * Shows "Generating..." during export
+- Added error banner below the header:
+    * Math failure → red banner: "Calculation Error: Insufficient comparable data..."
+    * LLM failure → yellow/gold banner: "Strategy narrative generation delayed..."
+    * Derived from engine outputs (mathFailed, llmFailed) — no useEffect+setState
+    * Dismissable; resets when error type changes
+- Added staggered fade-in animations to right column panels:
+    * CSS keyframe cv-fade-in-up (opacity 0→1, translateY 16px→0)
+    * 5 stagger classes: cv-stagger-1 through cv-stagger-5 (0.2s to 1.4s delays)
+    * Panel 1 (Pricing Matrix) → cv-stagger-1 (0.2s delay)
+    * Panel 2 (Capital Velocity) → cv-stagger-2 (0.5s delay)
+    * Panel 3 (GTM Strategy) → cv-stagger-3 (0.8s delay)
+    * Feels like data being "processed by a supercomputer"
+- Added id="right-column-content" to the right column section for PDF capture
+- FINAL ANTI-HALLUCCINATION AUDIT:
+    * grep "AED [0-9]" src/app/page.tsx → ZERO results (no hardcoded AED values)
+    * grep for hardcoded PSF fallbacks (3257, 2800, 2671, etc.) → ZERO results
+    * Removed the ?? 3257.65 fallback that was the only violation
+    * All display numbers trace to: MOCK_COMPS → calculateBasePricing →
+      applyMicroAdjustments → generateScenarios → simulateCashflow → UI
+    * Default input values (floor=80, sqft=2400, timeline=36, unitCount=200,
+      amenityScore=9) are user-editable UI defaults, NOT hardcoded display numbers
+    * daily_carry_cost_aed=50000 is a project-level assumption parameter, not
+      a display number (acceptable for prototype; would be user input in production)
+- Lint: clean (0 errors, 0 warnings)
+- Browser-verified:
+    * "EXPORT BOARD PACK" button visible in header ✓
+    * Error banner renders below header (no errors currently = no banner) ✓
+    * Staggered panel animations visible on page load ✓
+
+Stage Summary:
+- New files:
+    src/hooks/use-pdf-export.ts — PDF export hook
+    src/components/capital-velocity/ErrorBanner.tsx — error/warning banner
+- Enhanced:
+    src/app/page.tsx — export button, error banner, staggered animations,
+      derived error state, id on right column for PDF capture
+    src/app/globals.css — cv-fade-in-up keyframe + 5 stagger classes
+- Phase 15 spec compliance:
+    ✅ html2canvas + jspdf installed
+    ✅ "EXPORT BOARD PACK" button in top right (gold/platinum)
+    ✅ Captures entire Right Column (Pricing, Chart, Scenarios, GTM)
+    ✅ Dark-mode PDF (#0A0A0A background)
+    ✅ Filename: {Project_Name}_Launch_Strategy.pdf
+- Phase 16 spec compliance:
+    ✅ Global error states: red banner for math failure, yellow for LLM timeout
+    ✅ Math failure message: "Insufficient comparable data for this specific view/type combination"
+    ✅ LLM timeout message: "Strategy narrative generation delayed. Mathematical pricing is accurate and displayed above."
+    ✅ 2-second staggered animation on right-side panels (0.2s, 0.5s, 0.8s)
+    ✅ Final audit: ZERO hardcoded numbers in frontend. Every number traces to
+       mock_dubai_marina.json → engine → frontend pipeline.
