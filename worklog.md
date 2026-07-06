@@ -864,3 +864,74 @@ Stage Summary:
 - Zero hallucination propagation: the LLM can never receive None values,
   float PSF, invalid confidence strings, extra fields, or missing fields.
   Pydantic throws BEFORE the LLM is called.
+
+---
+Task ID: 14
+Agent: Lead Architect (main)
+Task: Implement the Structured JSON Narrator — XML-tagged strict context,
+explicit anti-hallucination rules, forced JSON output schema. LLM must output
+ONLY valid JSON: {target_persona, rationale, risk_flag}.
+
+Work Log:
+- Added generate_structured_narrative() to backend/llm_narrator.py:
+    * System prompt: "You are a Senior PropTech Partner. You must output ONLY
+      valid JSON matching the provided schema. No prose. No markdown."
+    * User prompt uses XML tags: <strict_context>, <rules>, <output_schema>
+    * 3 explicit rules: (1) never invent data, (2) never mention macro factors,
+      (3) null for empty fields
+    * Forced JSON output schema: {target_persona: string, rationale: string
+      (max 50 words), risk_flag: boolean}
+    * "BEGIN JSON OUTPUT:" forcing token at the end
+- Robust JSON parsing of LLM output:
+    * Strips markdown code fences (```json ... ```)
+    * Extracts first { ... } block if there's preamble
+    * Validates required keys: target_persona, rationale, risk_flag
+    * Type-checks: target_persona must be string, rationale must be string,
+      risk_flag must be boolean (not string "true", actual boolean)
+    * Returns _parse_success, _schema_gate_passed, _raw_llm_output, _error
+- Created /api/structured-narrative API route (TypeScript port):
+    * Mirrors the Python prompt exactly (XML tags, rules, schema)
+    * parseAndValidate() function with same robust JSON extraction
+    * Returns structured result with schema gate status
+- Added Structured JSON Output section to the Boardroom Rationale panel:
+    * "Structured JSON Output · Schema-Gated" heading
+    * "JSON Valid" (green) / "JSON Invalid" (red) badge based on _schema_gate_passed
+    * target_persona field displayed with monospace label
+    * rationale field displayed in italic gray text
+    * risk_flag displayed as colored badge (green=false, red=true)
+    * Loading skeleton (3 pulsing lines) while LLM is in flight
+    * Error message in red when schema gate fails
+    * Collapsible "View raw LLM output" audit trail
+- Python end-to-end test PASSED:
+    Input: {floor_psf: 2671, optimal_psf: 2866, ceiling_psf: 3116, confidence: "Medium"}
+    Output: {
+      "target_persona": "Senior PropTech Partner",
+      "rationale": "Current PSF of $2,671 is below optimal of $2,866 but within range of ceiling $3,116.",
+      "risk_flag": false
+    }
+    Schema compliance: 5/5 checks passed ✓
+      - target_persona is string ✓
+      - rationale is string ✓
+      - risk_flag is boolean ✓
+      - no macro factors mentioned ✓
+      - cites exact PSF from context ✓
+- Lint: clean
+- Browser-verified: structured output section renders correctly. When LLM API
+  is available, shows JSON Valid badge + 3 fields. When rate-limited, shows
+  JSON Invalid badge + error message (graceful degradation).
+
+Stage Summary:
+- New files:
+    src/app/api/structured-narrative/route.ts — TypeScript schema-gated endpoint
+- Enhanced:
+    backend/llm_narrator.py — added generate_structured_narrative()
+    src/app/page.tsx — Structured JSON Output section in Boardroom Rationale panel
+- The structured narrator enforces the EXACT prompt from the spec:
+    <strict_context> wrapping the pricing JSON
+    <rules> with 3 anti-hallucination rules
+    <output_schema> with the JSON shape
+    "BEGIN JSON OUTPUT:" forcing token
+- Output schema validated: {target_persona: string, rationale: string, risk_flag: boolean}
+- Every LLM output is parsed and type-checked before display. Invalid JSON,
+  missing keys, or wrong types trigger the "JSON Invalid" badge with the error
+  message visible to the CEO.

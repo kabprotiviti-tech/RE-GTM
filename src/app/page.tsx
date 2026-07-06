@@ -146,6 +146,8 @@ export default function Home() {
   const [gtmLoading, setGtmLoading] = useState(false);
   const [rationale, setRationale] = useState("");
   const [rationaleLoading, setRationaleLoading] = useState(false);
+  const [structuredOutput, setStructuredOutput] = useState<any>(null);
+  const [structuredLoading, setStructuredLoading] = useState(false);
 
   const fetchGTM = useCallback(async () => {
     setGtmLoading(true);
@@ -180,6 +182,34 @@ export default function Home() {
     finally { setRationaleLoading(false); }
   }, [microPricing, basePricing, baseAbsorptionDays, compsUsed]);
 
+  const fetchStructured = useCallback(async () => {
+    setStructuredLoading(true);
+    setStructuredOutput(null);
+    try {
+      const pricingData = {
+        floor_psf: activePricing.floor_psf,
+        optimal_psf: activePricing.optimal_psf,
+        ceiling_psf: activePricing.ceiling_psf,
+        confidence: basePricing.data_confidence,
+      };
+      const res = await fetch("/api/structured-narrative", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pricing_data: pricingData }),
+      });
+      const data = await res.json();
+      setStructuredOutput(data);
+    } catch (e: any) {
+      setStructuredOutput({
+        target_persona: null, rationale: null, risk_flag: null,
+        _parse_success: false, _schema_gate_passed: false,
+        _error: e.message,
+      });
+    } finally {
+      setStructuredLoading(false);
+    }
+  }, [activePricing, basePricing.data_confidence]);
+
   useEffect(() => {
     if (microPricing.final_optimal_psf == null) return;
     const t = setTimeout(() => fetchRationale(), 400);
@@ -191,6 +221,12 @@ export default function Home() {
     const t = setTimeout(() => fetchGTM(), 600);
     return () => clearTimeout(t);
   }, [scenarios, fetchGTM]);
+
+  useEffect(() => {
+    if (activePricing.optimal_psf == null) return;
+    const t = setTimeout(() => fetchStructured(), 500);
+    return () => clearTimeout(t);
+  }, [activePricing.optimal_psf, fetchStructured]);
 
   const hasData = activePricing.optimal_psf != null;
 
@@ -724,6 +760,111 @@ export default function Home() {
               <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
                 Anti-Hallucination Protocol — every figure traces to deterministic JSON
               </span>
+            </div>
+
+            {/* === STRUCTURED JSON OUTPUT (Phase 13) === */}
+            <div
+              className="mt-6 p-4 rounded-lg border"
+              style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[9px] font-semibold uppercase tracking-[0.15em]" style={{ color: "var(--gold)" }}>
+                  Structured JSON Output · Schema-Gated
+                </span>
+                <div className="flex items-center gap-2">
+                  {/* Schema gate badge */}
+                  {structuredOutput && (
+                    <span
+                      className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                      style={{
+                        color: structuredOutput._schema_gate_passed ? "var(--positive)" : "var(--negative)",
+                        border: `1px solid ${structuredOutput._schema_gate_passed ? "var(--positive)" : "var(--negative)"}`,
+                      }}
+                    >
+                      {structuredOutput._schema_gate_passed ? "JSON Valid" : "JSON Invalid"}
+                    </span>
+                  )}
+                  <button
+                    onClick={fetchStructured}
+                    disabled={structuredLoading}
+                    className="text-[9px] px-2 py-0.5 rounded disabled:opacity-50"
+                    style={{ background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+                  >
+                    {structuredLoading ? "Generating..." : "Regenerate"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Structured output fields */}
+              {structuredLoading && !structuredOutput ? (
+                <div className="space-y-2">
+                  <div className="h-3 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: "60%" }} />
+                  <div className="h-3 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: "90%" }} />
+                  <div className="h-3 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: "30%" }} />
+                </div>
+              ) : structuredOutput?._schema_gate_passed ? (
+                <div className="space-y-3">
+                  {/* target_persona */}
+                  <div className="flex items-start gap-3">
+                    <span className="text-[10px] font-mono font-semibold uppercase tracking-wider mt-0.5 w-28 flex-shrink-0" style={{ color: "var(--text-muted)" }}>
+                      target_persona
+                    </span>
+                    <span className="text-xs" style={{ color: "var(--text-heading)" }}>
+                      {structuredOutput.target_persona}
+                    </span>
+                  </div>
+                  {/* rationale */}
+                  <div className="flex items-start gap-3">
+                    <span className="text-[10px] font-mono font-semibold uppercase tracking-wider mt-0.5 w-28 flex-shrink-0" style={{ color: "var(--text-muted)" }}>
+                      rationale
+                    </span>
+                    <span className="text-xs italic leading-relaxed" style={{ color: "var(--text-body)" }}>
+                      {structuredOutput.rationale}
+                    </span>
+                  </div>
+                  {/* risk_flag */}
+                  <div className="flex items-start gap-3">
+                    <span className="text-[10px] font-mono font-semibold uppercase tracking-wider mt-0.5 w-28 flex-shrink-0" style={{ color: "var(--text-muted)" }}>
+                      risk_flag
+                    </span>
+                    <span
+                      className="text-xs font-bold px-2 py-0.5 rounded"
+                      style={{
+                        color: structuredOutput.risk_flag ? "var(--negative)" : "var(--positive)",
+                        background: structuredOutput.risk_flag
+                          ? "color-mix(in srgb, var(--negative) 12%, transparent)"
+                          : "color-mix(in srgb, var(--positive) 12%, transparent)",
+                        border: `1px solid ${structuredOutput.risk_flag ? "var(--negative)" : "var(--positive)"}`,
+                      }}
+                    >
+                      {structuredOutput.risk_flag ? "true — risk detected" : "false — no risk"}
+                    </span>
+                  </div>
+                </div>
+              ) : structuredOutput ? (
+                <div className="text-xs" style={{ color: "var(--negative)" }}>
+                  ⚠ {structuredOutput._error || "Schema gate failed — LLM output did not match the required JSON shape."}
+                </div>
+              ) : (
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  Adjust parameters to generate structured output.
+                </div>
+              )}
+
+              {/* Raw JSON audit (collapsible) */}
+              {structuredOutput?._raw_llm_output && (
+                <details className="mt-3 pt-3 border-t" style={{ borderColor: "var(--border)" }}>
+                  <summary className="text-[9px] cursor-pointer uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+                    View raw LLM output (audit trail)
+                  </summary>
+                  <pre
+                    className="mt-2 p-2 rounded text-[10px] font-mono overflow-x-auto"
+                    style={{ background: "var(--ground)", color: "var(--text-body)", border: "1px solid var(--border)" }}
+                  >
+                    {structuredOutput._raw_llm_output}
+                  </pre>
+                </details>
+              )}
             </div>
           </Panel>
         </section>

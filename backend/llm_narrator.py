@@ -473,6 +473,174 @@ def generate_narrative(pricing_data) -> str:
 
 
 # ---------------------------------------------------------------------------
+# PHASE 13: STRUCTURED JSON NARRATOR — Strict XML-tagged context + JSON schema
+# ---------------------------------------------------------------------------
+
+STRUCTURED_SYSTEM_PROMPT = (
+    "You are a Senior PropTech Partner. "
+    "You must output ONLY valid JSON matching the provided schema. "
+    "No prose. No markdown. No commentary. ONLY the JSON object."
+)
+
+STRUCTURED_USER_PROMPT_TEMPLATE = """<strict_context>
+{pricing_data_json}
+</strict_context>
+
+<rules>
+1. NEVER invent data. Use ONLY the numbers inside <strict_context>.
+2. NEVER mention macro-economic factors (interest rates, oil prices) as they are not in the context.
+3. If a field in the context is empty, output null for that field.
+</rules>
+
+<output_schema>
+{{
+  "target_persona": "string",
+  "rationale": "string (max 50 words, cite exact PSF from context)",
+  "risk_flag": "boolean"
+}}
+</output_schema>
+
+BEGIN JSON OUTPUT:"""
+
+
+def generate_structured_narrative(pricing_data_json: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Generate a STRUCTURED JSON narrative from pricing data using strict XML-tagged
+    context and a forced JSON output schema.
+
+    The LLM receives:
+    - <strict_context> tags wrapping the pricing JSON
+    - <rules> tags with 3 explicit anti-hallucination rules
+    - <output_schema> tags defining the exact JSON shape
+    - "BEGIN JSON OUTPUT:" forcing token
+
+    The LLM must output ONLY valid JSON: {target_persona, rationale, risk_flag}.
+
+    Args:
+        pricing_data_json: The validated pricing dict (floor_psf, optimal_psf,
+            ceiling_psf, confidence). Should pass the PricingOutput schema gate
+            before reaching this function.
+
+    Returns:
+        dict with keys:
+            - target_persona (str): "Investor" or "End-User"
+            - rationale (str): max 50 words, cites exact PSF from context
+            - risk_flag (bool): true if confidence is Low or PSF spread is wide
+            - _raw_llm_output (str): the raw LLM response for audit
+            - _parse_success (bool): whether JSON parsing succeeded
+            - _schema_gate_passed (bool): whether the output matches the schema
+    """
+    if not isinstance(pricing_data_json, dict) or not pricing_data_json:
+        return {
+            "target_persona": None,
+            "rationale": None,
+            "risk_flag": None,
+            "_raw_llm_output": None,
+            "_parse_success": False,
+            "_schema_gate_passed": False,
+            "_error": "pricing_data_json is empty or not a dict",
+        }
+
+    user_prompt = STRUCTURED_USER_PROMPT_TEMPLATE.format(
+        pricing_data_json=json.dumps(pricing_data_json, indent=2)
+    )
+
+    raw_output = _call_llm_cli(STRUCTURED_SYSTEM_PROMPT, user_prompt)
+
+    if raw_output is None:
+        return {
+            "target_persona": None,
+            "rationale": None,
+            "risk_flag": None,
+            "_raw_llm_output": None,
+            "_parse_success": False,
+            "_schema_gate_passed": False,
+            "_error": "[NARRATOR UNAVAILABLE] — LLM call failed",
+        }
+
+    # --- Parse the LLM output as JSON ----------------------------------------
+    # The LLM may wrap JSON in markdown code fences or add preamble. Extract
+    # the JSON object robustly.
+    json_str = raw_output.strip()
+
+    # Strip markdown code fences if present
+    if json_str.startswith("```"):
+        # Remove ```json or ``` prefix and trailing ```
+        lines = json_str.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        json_str = "\n".join(lines).strip()
+
+    # Extract the first { ... } block if there's preamble
+    first_brace = json_str.find("{")
+    last_brace = json_str.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        json_str = json_str[first_brace : last_brace + 1]
+
+    try:
+        parsed = json.loads(json_str)
+    except json.JSONDecodeError as e:
+        return {
+            "target_persona": None,
+            "rationale": None,
+            "risk_flag": None,
+            "_raw_llm_output": raw_output,
+            "_parse_success": False,
+            "_schema_gate_passed": False,
+            "_error": f"LLM output is not valid JSON: {e}",
+        }
+
+    # --- Validate the parsed JSON against the output schema -------------------
+    required_keys = {"target_persona", "rationale", "risk_flag"}
+    actual_keys = set(parsed.keys())
+
+    if not required_keys.issubset(actual_keys):
+        missing = required_keys - actual_keys
+        return {
+            "target_persona": parsed.get("target_persona"),
+            "rationale": parsed.get("rationale"),
+            "risk_flag": parsed.get("risk_flag"),
+            "_raw_llm_output": raw_output,
+            "_parse_success": True,
+            "_schema_gate_passed": False,
+            "_error": f"Missing required keys: {missing}",
+        }
+
+    # Type-check the fields
+    type_errors = []
+    if not isinstance(parsed["target_persona"], str):
+        type_errors.append("target_persona must be string")
+    if not isinstance(parsed["rationale"], str):
+        type_errors.append("rationale must be string")
+    if not isinstance(parsed["risk_flag"], bool):
+        type_errors.append("risk_flag must be boolean")
+
+    if type_errors:
+        return {
+            "target_persona": parsed.get("target_persona"),
+            "rationale": parsed.get("rationale"),
+            "risk_flag": parsed.get("risk_flag"),
+            "_raw_llm_output": raw_output,
+            "_parse_success": True,
+            "_schema_gate_passed": False,
+            "_error": f"Type errors: {'; '.join(type_errors)}",
+        }
+
+    # All checks passed
+    return {
+        "target_persona": parsed["target_persona"],
+        "rationale": parsed["rationale"],
+        "risk_flag": parsed["risk_flag"],
+        "_raw_llm_output": raw_output,
+        "_parse_success": True,
+        "_schema_gate_passed": True,
+        "_error": None,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Standalone self-validation
 #   Run:  python backend/llm_narrator.py
    # Confirms the prompt assembly, CLI plumbing, and fallback path.
