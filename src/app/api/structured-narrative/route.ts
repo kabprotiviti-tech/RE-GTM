@@ -14,6 +14,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
 
+import { ensureZaiConfig } from "@/lib/zai-config";
+ensureZaiConfig();
+
 const SYSTEM_PROMPT =
   "You are a Senior PropTech Partner. " +
   "You must output ONLY valid JSON matching the provided schema. " +

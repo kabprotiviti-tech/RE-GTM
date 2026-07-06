@@ -19,6 +19,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
 
+import { ensureZaiConfig } from "@/lib/zai-config";
+ensureZaiConfig();
+
 // ---------------------------------------------------------------------------
 // Schema gate — TypeScript mirror of Pydantic PricingOutput
 // ---------------------------------------------------------------------------

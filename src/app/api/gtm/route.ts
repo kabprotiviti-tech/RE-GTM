@@ -8,6 +8,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
 
+import { ensureZaiConfig } from "@/lib/zai-config";
+ensureZaiConfig();
+
 const SYSTEM_PROMPT =
   "You are a Senior Partner at McKinsey. You are presenting to the CEO of Emaar. " +
   "Using ONLY the provided scenario JSON data, write a 200-word GTM strategy. " +

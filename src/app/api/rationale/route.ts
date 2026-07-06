@@ -8,6 +8,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
 
+import { ensureZaiConfig } from "@/lib/zai-config";
+ensureZaiConfig();
+
 const SYSTEM_PROMPT =
   "You are a PropTech Data Scientist. Explain why the 'Optimal Price' was chosen " +
   "over the 'Floor' and 'Ceiling'. Cite the specific absorption days and view " +
