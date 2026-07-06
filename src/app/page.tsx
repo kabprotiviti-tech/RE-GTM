@@ -27,6 +27,7 @@ import {
   applyMicroAdjustments,
   microToMacroView,
 } from "@/lib/engines/pricing-engine";
+import { calculateHedonicPricing } from "@/lib/engines/hedonic-engine";
 import { simulateCashflow, summarizeCashflow } from "@/lib/engines/cashflow-sim";
 import { generateScenarios, summarizeScenarios } from "@/lib/engines/scenario-engine";
 import { MOCK_COMPS } from "@/lib/engines/mock-data";
@@ -65,6 +66,8 @@ export default function Home() {
   const [paymentPlan, setPaymentPlan] = useState("60/40");
   const [timelineMonths, setTimelineMonths] = useState(36);
   const [unitCount, setUnitCount] = useState(200);
+  const [pricingMethod, setPricingMethod] = useState<"weighted" | "hedonic">("hedonic");
+  const [amenityScore, setAmenityScore] = useState(9);
 
   // --- Deterministic engine outputs ------------------------------------------
   const macroView = microToMacroView(microView);
@@ -76,6 +79,27 @@ export default function Home() {
     () => applyMicroAdjustments(basePricing, { unit_type: unitType, view: microView, floor_number: floor, sqft }),
     [basePricing, unitType, microView, floor, sqft]
   );
+
+  // Hedonic pricing (Phase 11) — regression-based, not weighted average
+  const hedonicPricing = useMemo(
+    () => calculateHedonicPricing({ floor, amenity_score: amenityScore, view: microView }),
+    [floor, amenityScore, microView]
+  );
+
+  // Active pricing output based on the selected method
+  const activePricing = pricingMethod === "hedonic" ? {
+    floor_psf: hedonicPricing.floor,
+    optimal_psf: hedonicPricing.optimal,
+    ceiling_psf: hedonicPricing.ceiling,
+    estimated_unit_price: hedonicPricing.optimal * sqft,
+    method: "hedonic" as const,
+  } : {
+    floor_psf: microPricing.final_floor_psf,
+    optimal_psf: microPricing.final_optimal_psf,
+    ceiling_psf: microPricing.final_ceiling_psf,
+    estimated_unit_price: microPricing.estimated_unit_price,
+    method: "weighted" as const,
+  };
   const compsUsed = useMemo(
     () => MOCK_COMPS.filter((c) => c.unit_type === unitType && c.view === macroView),
     [unitType, macroView]
@@ -85,15 +109,15 @@ export default function Home() {
     [compsUsed]
   );
   const cashflowData = useMemo(() => {
-    if (microPricing.estimated_unit_price == null) return [];
-    return simulateCashflow(microPricing.estimated_unit_price, paymentPlan, timelineMonths);
-  }, [microPricing.estimated_unit_price, paymentPlan, timelineMonths]);
+    if (activePricing.estimated_unit_price == null) return [];
+    return simulateCashflow(activePricing.estimated_unit_price, paymentPlan, timelineMonths);
+  }, [activePricing.estimated_unit_price, paymentPlan, timelineMonths]);
   const cashflowSummary = useMemo(() => summarizeCashflow(cashflowData), [cashflowData]);
   const scenarios = useMemo(
-    () => generateScenarios(microPricing.final_optimal_psf ?? 3257.65, baseAbsorptionDays, {
+    () => generateScenarios(activePricing.optimal_psf ?? 3257.65, baseAbsorptionDays, {
       unit_count: unitCount, avg_sqft_per_unit: sqft, daily_carry_cost_aed: 50000,
     }),
-    [microPricing.final_optimal_psf, baseAbsorptionDays, unitCount, sqft]
+    [activePricing.optimal_psf, baseAbsorptionDays, unitCount, sqft]
   );
   const scenarioSummary = useMemo(() => summarizeScenarios(scenarios), [scenarios]);
   const [activeScenario, setActiveScenario] = useState(0);
@@ -149,7 +173,7 @@ export default function Home() {
     return () => clearTimeout(t);
   }, [scenarios, fetchGTM]);
 
-  const hasData = microPricing.final_optimal_psf != null;
+  const hasData = activePricing.optimal_psf != null;
 
   return (
     <div className="cv-theme-root min-h-screen flex flex-col">
@@ -277,6 +301,68 @@ export default function Home() {
               style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-heading)" }} />
           </Field>
 
+          {/* Pricing Method Toggle — Phase 11 */}
+          <Field label="Pricing Method">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setPricingMethod("hedonic")}
+                className="px-3 py-2.5 rounded text-xs font-medium transition-all"
+                style={{
+                  background: pricingMethod === "hedonic" ? "var(--surface-raised)" : "var(--surface)",
+                  border: `1px solid ${pricingMethod === "hedonic" ? "var(--gold)" : "var(--border)"}`,
+                  color: pricingMethod === "hedonic" ? "var(--gold)" : "var(--text-muted)",
+                  borderLeftWidth: pricingMethod === "hedonic" ? 2 : 1,
+                }}
+              >
+                Hedonic Regression
+              </button>
+              <button
+                onClick={() => setPricingMethod("weighted")}
+                className="px-3 py-2.5 rounded text-xs font-medium transition-all"
+                style={{
+                  background: pricingMethod === "weighted" ? "var(--surface-raised)" : "var(--surface)",
+                  border: `1px solid ${pricingMethod === "weighted" ? "var(--gold)" : "var(--border)"}`,
+                  color: pricingMethod === "weighted" ? "var(--gold)" : "var(--text-muted)",
+                  borderLeftWidth: pricingMethod === "weighted" ? 2 : 1,
+                }}
+              >
+                Weighted Average
+              </button>
+            </div>
+            <div className="text-[9px] mt-1.5 italic" style={{ color: "var(--text-muted)" }}>
+              {pricingMethod === "hedonic"
+                ? "Regression-based: base intercept + feature coefficients from comp set"
+                : "Phase 2 method: 60% absorption + 40% amenity weighted average"}
+            </div>
+          </Field>
+
+          {/* Amenity Score — only shown for hedonic method */}
+          {pricingMethod === "hedonic" && (
+            <Field label="Amenity Score (1-10)">
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  step={1}
+                  value={amenityScore}
+                  onChange={(e) => setAmenityScore(Number(e.target.value))}
+                  className="flex-1 accent-[var(--gold)]"
+                  style={{ accentColor: "var(--gold)" }}
+                />
+                <span
+                  className="text-sm font-bold font-mono w-8 text-center"
+                  style={{ color: "var(--gold)" }}
+                >
+                  {amenityScore}
+                </span>
+              </div>
+              <div className="text-[9px] mt-1" style={{ color: "var(--text-muted)" }}>
+                AED {45 * amenityScore} contribution ({45} × {amenityScore})
+              </div>
+            </Field>
+          )}
+
           {/* Floor Picker */}
           <div className="mt-6 pt-6 border-t" style={{ borderColor: "var(--border)" }}>
             <div className="flex items-center justify-between mb-4">
@@ -319,15 +405,38 @@ export default function Home() {
           <Panel
             icon={<DollarSign size={14} />}
             title="Pricing Matrix"
-            subtitle="Three-tier deterministic architecture · Floor / Optimal / Ceiling"
+            subtitle={
+              pricingMethod === "hedonic"
+                ? "Hedonic Regression · base intercept + feature coefficients"
+                : "Weighted Average · 60% absorption + 40% amenity"
+            }
             hasData={hasData}
           >
+            {/* Method badge */}
+            <div className="flex items-center gap-2 mb-4">
+              <span
+                className="text-[9px] font-bold uppercase tracking-[0.15em] px-2 py-1 rounded"
+                style={{
+                  background: "var(--surface-raised)",
+                  color: "var(--gold)",
+                  border: "1px solid var(--gold)",
+                }}
+              >
+                {pricingMethod === "hedonic" ? "Hedonic" : "Weighted Avg"}
+              </span>
+              <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>
+                {pricingMethod === "hedonic"
+                  ? "Regression-based — not a simple average"
+                  : "Phase 2 method — absorption-weighted"}
+              </span>
+            </div>
+
             {/* Tier tiles — large bold PSF numbers */}
             <div className="grid grid-cols-3 gap-4 mb-5">
               {[
-                { name: "Floor", val: microPricing.final_floor_psf, mult: "× 0.96", desc: "Defensive clearance", color: "var(--text-body)" },
-                { name: "Optimal", val: microPricing.final_optimal_psf, mult: "× 1.03", desc: "Target realized price", color: "var(--gold)" },
-                { name: "Ceiling", val: microPricing.final_ceiling_psf, mult: "× 1.12", desc: "Negotiation headroom", color: "var(--accent)" },
+                { name: "Floor", val: activePricing.floor_psf, mult: "× 0.96", desc: "Defensive clearance", color: "var(--text-body)" },
+                { name: "Optimal", val: activePricing.optimal_psf, mult: pricingMethod === "hedonic" ? "calculated" : "× 1.03", desc: "Target realized price", color: "var(--gold)" },
+                { name: "Ceiling", val: activePricing.ceiling_psf, mult: "× 1.12", desc: "Negotiation headroom", color: "var(--accent)" },
               ].map((t, i) => (
                 <motion.div
                   key={t.name}
@@ -383,23 +492,78 @@ export default function Home() {
               />
             </div>
 
-            {/* Estimated unit price + adjustments */}
+            {/* Estimated unit price + adjustments (or hedonic decomposition) */}
             <div className="grid grid-cols-2 gap-4 mb-4">
               <div className="p-4 rounded-lg border" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
                 <div className="text-[9px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
                   Estimated Unit Price
                 </div>
                 <div className="text-2xl font-semibold" style={{ color: "var(--text-heading)" }}>
-                  {microPricing.estimated_unit_price != null ? <AnimatedCounter value={microPricing.estimated_unit_price} format="aed" duration={1.2} /> : <span style={{ color: "var(--text-muted)" }}>[MISSING]</span>}
+                  {activePricing.estimated_unit_price != null ? <AnimatedCounter value={activePricing.estimated_unit_price} format="aed" duration={1.2} /> : <span style={{ color: "var(--text-muted)" }}>[MISSING]</span>}
                 </div>
                 <div className="text-[9px] mt-1" style={{ color: "var(--text-muted)" }}>Optimal PSF × {sqft} sqft</div>
               </div>
-              <div className="p-4 rounded-lg border space-y-2" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
-                <AdjRow label="Floor premium" value={microPricing.floor_premium_pct} />
-                <AdjRow label="View modifier" value={microPricing.micro_view_modifier_pct} />
-                <AdjRow label="Combined uplift" value={microPricing.combined_adjustment_pct} bold />
-              </div>
+
+              {/* Adjustments — different content per method */}
+              {pricingMethod === "hedonic" ? (
+                <div className="p-4 rounded-lg border space-y-2" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
+                  <div className="text-[9px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--gold)" }}>
+                    Hedonic Decomposition
+                  </div>
+                  <HedonicRow label="Base intercept" value={hedonicPricing.decomposition.base_intercept} />
+                  <HedonicRow label={`View premium × ${hedonicPricing.decomposition.marina_indicator}`} value={hedonicPricing.decomposition.view_contribution} />
+                  <HedonicRow label={`Floor ${floor} × ${hedonicPricing.floor_coefficient}`} value={hedonicPricing.decomposition.floor_contribution} />
+                  <HedonicRow label={`Amenity ${amenityScore} × ${hedonicPricing.amenity_coefficient}`} value={hedonicPricing.decomposition.amenity_contribution} />
+                  <div className="pt-1.5 mt-1.5 border-t flex justify-between items-center text-[11px]" style={{ borderColor: "var(--border)" }}>
+                    <span className="font-semibold" style={{ color: "var(--text-heading)" }}>Calculated PSF</span>
+                    <span className="font-mono font-bold" style={{ color: "var(--gold)" }}>AED {hedonicPricing.calculated_psf.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 rounded-lg border space-y-2" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
+                  <AdjRow label="Floor premium" value={microPricing.floor_premium_pct} />
+                  <AdjRow label="View modifier" value={microPricing.micro_view_modifier_pct} />
+                  <AdjRow label="Combined uplift" value={microPricing.combined_adjustment_pct} bold />
+                </div>
+              )}
             </div>
+
+            {/* View premium audit trail — only for hedonic */}
+            {pricingMethod === "hedonic" && (
+              <div className="p-4 rounded-lg border mb-4" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
+                <div className="text-[9px] font-semibold uppercase tracking-[0.15em] mb-3" style={{ color: "var(--text-muted)" }}>
+                  View Premium Isolation Audit
+                </div>
+                <div className="grid grid-cols-2 gap-4 text-[11px]">
+                  <div>
+                    <div style={{ color: "var(--text-muted)" }}>Premium-view comps (Marina)</div>
+                    <div className="font-mono mt-0.5" style={{ color: "var(--text-body)" }}>
+                      {hedonicPricing.comps_used_for_premium.premium_view_comps.join(", ") || "[none]"}
+                    </div>
+                    <div className="mt-1" style={{ color: "var(--text-muted)" }}>
+                      Avg residual: <span className="font-mono" style={{ color: "var(--text-body)" }}>AED {hedonicPricing.comps_used_for_premium.premium_avg_residual.toLocaleString()}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: "var(--text-muted)" }}>Baseline-view comps (City)</div>
+                    <div className="font-mono mt-0.5" style={{ color: "var(--text-body)" }}>
+                      {hedonicPricing.comps_used_for_premium.baseline_view_comps.join(", ") || "[none]"}
+                    </div>
+                    <div className="mt-1" style={{ color: "var(--text-muted)" }}>
+                      Avg residual: <span className="font-mono" style={{ color: "var(--text-body)" }}>AED {hedonicPricing.comps_used_for_premium.baseline_avg_residual.toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-3 pt-3 border-t flex justify-between items-center" style={{ borderColor: "var(--border)" }}>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+                    Isolated View Premium
+                  </span>
+                  <span className="text-lg font-bold font-mono" style={{ color: "var(--gold)" }}>
+                    AED {hedonicPricing.view_premium.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Pricing rationale — italicized gray text per Phase 10 spec */}
             <div
@@ -569,6 +733,17 @@ function AdjRow({ label, value, bold }: { label: string; value: number | null; b
         fontWeight: bold ? 600 : 400,
       }}>
         {value == null ? "—" : `${value >= 0 ? "+" : ""}${value}%`}
+      </span>
+    </div>
+  );
+}
+
+function HedonicRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex justify-between items-center text-[11px]">
+      <span style={{ color: "var(--text-muted)" }}>{label}</span>
+      <span className="font-mono" style={{ color: "var(--text-body)" }}>
+        AED {value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
       </span>
     </div>
   );

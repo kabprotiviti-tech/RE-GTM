@@ -712,3 +712,69 @@ Stage Summary:
 - Dynamic behavior: confidence bar color + width updates instantly when the
   unit spec changes (view, unit type) — reflects the live comp count from the
   deterministic pricing engine.
+
+---
+Task ID: 12
+Agent: Lead Architect (main)
+Task: Implement the EXACT hedonic pricing logic specified in Phase 11. NOT a
+simple average — a regression-based decomposition with base intercept + feature
+coefficients derived from the comp set.
+
+Work Log:
+- Created backend/hedonic_engine.py implementing the EXACT spec:
+    Step 1: Base intercept = AED 1,800 (value of a standard unit with no views)
+    Step 2: calculate_feature_premium(comps, 'view', 'Full Marina', 'City') —
+            isolates the view premium by computing residuals after removing
+            base_intercept + amenity_contribution for each comp, then comparing
+            average residuals between premium-view and baseline-view comps.
+            This is a proper hedonic decomposition, NOT a simple PSF average.
+    Step 3: Reconstruct price = base + view_premium*indicator + floor_coeff*floor
+            + amenity_coeff*amenity (floor_coeff=3.5, amenity_coeff=45)
+    Step 4: floor = calculated * 0.96, ceiling = calculated * 1.12
+- The critical function calculate_feature_premium() controls for amenity score
+  so the resulting premium is the ISOLATED view effect, not a confounded average.
+  Premium-view comps (Marina): CV-001, CV-007 → avg residual AED 365
+  Baseline-view comps (City): CV-005 → avg residual AED 185
+  Isolated view premium: AED 365 - AED 185 = AED 180/sqft
+- Created src/lib/engines/hedonic-engine.ts — faithful TypeScript port.
+- Created /api/hedonic API route.
+- Python self-validation: 4 test cases pass:
+    Floor 80, Full Marina, Amenity 9 → PSF AED 2,665 (1800 + 180 + 280 + 405)
+    Floor 50, Partial Marina, Amenity 8 → PSF AED 2,515 (1800 + 180 + 175 + 360)
+    Floor 5, Internal, Amenity 7 → PSF AED 2,132.50 (1800 + 0 + 17.5 + 315)
+    Floor 30, City, Amenity 8 → PSF AED 2,265 (1800 + 0 + 105 + 360)
+- Added pricing method toggle to the UI (Hedonic Regression / Weighted Average):
+    * Two buttons in the left column, gold border on active method
+    * Amenity score slider (1-10) appears only in hedonic mode
+    * Method badge in the Pricing Matrix panel header
+    * Hedonic Decomposition section replaces the adjustments section when
+      hedonic mode is active — shows base intercept, view contribution,
+      floor contribution, amenity contribution, and calculated PSF sum
+    * View Premium Isolation Audit section appears only in hedonic mode —
+      shows the premium-view comps, baseline-view comps, their average
+      residuals, and the isolated view premium
+- All downstream engines (scenarios, cashflow) now use activePricing.optimal_psf
+  so switching methods recomputes the entire pipeline.
+- Lint: clean (0 errors, 0 warnings)
+- Browser-verified via agent-browser + VLM:
+    * Hedonic badge visible
+    * Large bold PSF numbers confirmed
+    * Hedonic Decomposition section showing all 4 components
+    * View Premium Isolation Audit showing comps and residuals
+    * Toggle to Weighted Average works — badge changes, decomposition section
+      reverts to percentage-based adjustments
+
+Stage Summary:
+- New files:
+    backend/hedonic_engine.py — Python hedonic engine
+    src/lib/engines/hedonic-engine.ts — TypeScript port
+    src/app/api/hedonic/route.ts — API endpoint
+- Enhanced: src/app/page.tsx — pricing method toggle + hedonic decomposition UI
+- The view premium is now computed deterministically from the comp set:
+    AED 180/sqft isolated premium for Marina views over City views
+    (Marina comps average AED 365 residual after removing base + amenity;
+     City comps average AED 185 residual; difference = AED 180)
+- Every PSF output traces to: base_intercept + view_premium*indicator +
+  floor_coefficient*floor + amenity_coefficient*amenity_score
+- The user can now toggle between two pricing methodologies and see the
+  full decomposition + audit trail for each.
