@@ -202,12 +202,18 @@ export default function Home() {
   const [activeScenario, setActiveScenario] = useState(0);
 
   // --- LLM narration ---
+  // IMPORTANT: AI generates ONCE when the user reaches the relevant step, then stays static.
+  // No auto-regeneration on every input change — that caused the flickering.
+  // User must click "Regenerate" to get a fresh narrative.
   const [gtmNarrative, setGtmNarrative] = useState("");
   const [gtmLoading, setGtmLoading] = useState(false);
+  const [gtmGenerated, setGtmGenerated] = useState(false);
   const [rationale, setRationale] = useState("");
   const [rationaleLoading, setRationaleLoading] = useState(false);
+  const [rationaleGenerated, setRationaleGenerated] = useState(false);
   const [structuredOutput, setStructuredOutput] = useState<any>(null);
   const [structuredLoading, setStructuredLoading] = useState(false);
+  const [structuredGenerated, setStructuredGenerated] = useState(false);
 
   const fetchGTM = useCallback(async () => {
     setGtmLoading(true);
@@ -222,7 +228,8 @@ export default function Home() {
       const res = await fetch("/api/gtm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scenario_data_json: payload, project_brief: brief }) });
       const data = await res.json();
       setGtmNarrative(data.narrative || "[NARRATOR UNAVAILABLE]");
-    } catch (e: any) { setGtmNarrative(`[NARRATOR UNAVAILABLE]\n\n${e.message}`); }
+      setGtmGenerated(true);
+    } catch (e: any) { setGtmNarrative(`[NARRATOR UNAVAILABLE]\n\n${e.message}`); setGtmGenerated(true); }
     finally { setGtmLoading(false); }
   }, [scenarios, scenarioSummary, paymentPlan, timelineMonths, cashflowSummary, activePricing, locationPremium, parcelLat, parcelLng, unitCount, unitType, developer, floor, microView]);
 
@@ -241,7 +248,8 @@ export default function Home() {
       const res = await fetch("/api/rationale", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pricing_json: pricingPayload, comps_used: compsUsed }) });
       const data = await res.json();
       setRationale(data.rationale || "[NARRATOR UNAVAILABLE]");
-    } catch (e: any) { setRationale(`[NARRATOR UNAVAILABLE]\n\n${e.message}`); }
+      setRationaleGenerated(true);
+    } catch (e: any) { setRationale(`[NARRATOR UNAVAILABLE]\n\n${e.message}`); setRationaleGenerated(true); }
     finally { setRationaleLoading(false); }
   }, [activePricing, basePricing, baseAbsorptionDays, compsUsed, locationPremium, proximityResults]);
 
@@ -252,28 +260,47 @@ export default function Home() {
       const res = await fetch("/api/structured-narrative", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pricing_data: { floor_psf: activePricing.floor_psf, optimal_psf: activePricing.optimal_psf, ceiling_psf: activePricing.ceiling_psf, confidence: basePricing.data_confidence } }) });
       const data = await res.json();
       setStructuredOutput(data);
+      setStructuredGenerated(true);
     } catch (e: any) {
       setStructuredOutput({ target_persona: null, rationale: null, risk_flag: null, _parse_success: false, _schema_gate_passed: false, _error: e.message });
+      setStructuredGenerated(true);
     } finally { setStructuredLoading(false); }
   }, [activePricing, basePricing.data_confidence]);
 
+  // Generate rationale ONCE when entering Step 3 (Pricing)
   useEffect(() => {
-    if (activePricing.optimal_psf == null) return;
-    const t = setTimeout(() => fetchRationale(), 400);
-    return () => clearTimeout(t);
-  }, [activePricing.optimal_psf, locationPremium, fetchRationale]);
+    if (step === 3 && !rationaleGenerated && activePricing.optimal_psf != null) {
+      fetchRationale();
+    }
+  }, [step, rationaleGenerated, activePricing.optimal_psf]); // intentionally not depending on fetchRationale
 
+  // Generate structured ONCE when entering Step 3
   useEffect(() => {
-    if (!scenarios.length) return;
-    const t = setTimeout(() => fetchGTM(), 600);
-    return () => clearTimeout(t);
-  }, [scenarios, fetchGTM]);
+    if (step === 3 && !structuredGenerated && activePricing.optimal_psf != null) {
+      fetchStructured();
+    }
+  }, [step, structuredGenerated, activePricing.optimal_psf]); // intentionally not depending on fetchStructured
 
+  // Generate GTM ONCE when entering Step 5
   useEffect(() => {
-    if (activePricing.optimal_psf == null) return;
-    const t = setTimeout(() => fetchStructured(), 500);
-    return () => clearTimeout(t);
-  }, [activePricing.optimal_psf, fetchStructured]);
+    if (step === 5 && !gtmGenerated && scenarios.length > 0) {
+      fetchGTM();
+    }
+  }, [step, gtmGenerated, scenarios.length]); // intentionally not depending on fetchGTM
+
+  // Reset generated flags when user goes back to Step 2 and changes spec
+  // (so re-entering Step 3/5 regenerates with new data)
+  const [lastSpecSnapshot, setLastSpecSnapshot] = useState("");
+  const currentSpec = `${unitType}|${microView}|${floor}|${sqft}|${developer}|${paymentPlan}|${timelineMonths}|${unitCount}|${pricingMethod}|${amenityScore}|${parcelLat}|${parcelLng}`;
+  useEffect(() => {
+    if (lastSpecSnapshot && currentSpec !== lastSpecSnapshot) {
+      // Spec changed — reset the generated flags so AI regenerates on next step visit
+      setGtmGenerated(false);
+      setRationaleGenerated(false);
+      setStructuredGenerated(false);
+    }
+    setLastSpecSnapshot(currentSpec);
+  }, [currentSpec, lastSpecSnapshot]);
 
   const hasData = activePricing.optimal_psf != null;
   const { exportToPDF, exporting: pdfExporting } = usePDFExport();
@@ -533,7 +560,7 @@ export default function Home() {
                 <div className="p-5 rounded-xl border-l-2 mb-6" style={{ background: "var(--surface)", borderColor: "var(--border)", borderLeftColor: "var(--gold)" }}>
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--gold)" }}>Pricing Rationale</span>
-                    <button onClick={fetchRationale} disabled={rationaleLoading} className="text-[10px] px-2 py-1 rounded disabled:opacity-50" style={{ background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+                    <button onClick={() => { setRationaleGenerated(false); fetchRationale(); }} disabled={rationaleLoading} className="text-[10px] px-2 py-1 rounded disabled:opacity-50" style={{ background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
                       {rationaleLoading ? "Generating..." : "Regenerate"}
                     </button>
                   </div>
@@ -640,7 +667,7 @@ export default function Home() {
                 <GTMPanel
                   narrative={gtmNarrative}
                   loading={gtmLoading}
-                  onRefresh={fetchGTM}
+                  onRefresh={() => { setGtmGenerated(false); fetchGTM(); }}
                   structuredOutput={structuredOutput}
                   projectName={projectName}
                   pricingData={{
