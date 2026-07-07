@@ -38,6 +38,7 @@ import { ConfidenceIndicator } from "@/components/capital-velocity/ConfidenceInd
 import { MapPickerWrapper } from "@/components/capital-velocity/MapPickerWrapper";
 import { ProximityDashboard } from "@/components/capital-velocity/ProximityDashboard";
 import { StepProgress } from "@/components/capital-velocity/StepProgress";
+import { MarketIntelligence } from "@/components/capital-velocity/MarketIntelligence";
 import { usePDFExport } from "@/hooks/use-pdf-export";
 import {
   calculateBasePricing,
@@ -54,6 +55,7 @@ import {
   calculateTotalLocationPremium,
   type POICategory,
 } from "@/lib/engines/dubai-poi";
+import { getAllCorridors } from "@/lib/engines/project-database";
 
 const ALL_CATEGORIES: POICategory[] = ["metro", "sea", "school", "mall", "park", "hospital", "highway"];
 
@@ -141,6 +143,7 @@ export default function Home() {
 
   // --- Input spec ---
   const [projectName, setProjectName] = useState("Marina Gate IV — Reference Tower");
+  const [corridor, setCorridor] = useState("Dubai Marina");
   const [unitType, setUnitType] = useState<"1BR" | "2BR" | "3BR">("2BR");
   const [microView, setMicroView] = useState("Full Marina");
   const [floor, setFloor] = useState(80);
@@ -448,6 +451,12 @@ export default function Home() {
                 <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
                   <div className="rounded-xl border p-6 space-y-4" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
                     <SpecField label="Project Name" value={projectName} onChange={setProjectName} type="text" />
+                    <SpecSelect
+                      label="Corridor (for fair comparison)"
+                      value={corridor}
+                      onChange={setCorridor}
+                      options={getAllCorridors().map((c) => [c.corridor, `${c.emirate} · ${c.corridor} (${c.projectCount} projects)`] as [string, string])}
+                    />
                     <div className="grid grid-cols-2 gap-3">
                       <SpecSelect label="Unit Type" value={unitType} onChange={(v) => setUnitType(v as any)} options={[["1BR","1BR"],["2BR","2BR"],["3BR","3BR"]]} />
                       <SpecField label="Floor Number" value={String(floor)} onChange={(v) => setFloor(Number(v))} type="number" />
@@ -596,6 +605,25 @@ export default function Home() {
                       );
                     })}
                   </div>
+                </div>
+
+                {/* === MARKET INTELLIGENCE DASHBOARD === */}
+                <div className="mt-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Sparkles size={14} style={{ color: "var(--gold)" }} />
+                    <h3 className="text-sm font-semibold" style={{ color: "var(--text-heading)" }}>
+                      Market Intelligence — {corridor}
+                    </h3>
+                  </div>
+                  <MarketIntelligence
+                    corridor={corridor}
+                    projectPsqft={activePricing.optimal_psf ?? 0}
+                    projectAbsorptionDays={baseAbsorptionDays}
+                    unitCount={unitCount}
+                    avgSqft={sqft}
+                    dailyCarryCost={50000}
+                    timelineMonths={timelineMonths}
+                  />
                 </div>
 
                 <StepNav onPrev={prevStep} onNext={nextStep} nextLabel="View Scenarios →" prevLabel="← Back to Spec" />
