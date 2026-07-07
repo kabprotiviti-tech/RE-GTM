@@ -1180,3 +1180,28 @@ Work Log:
 - NEW: StepProgress component (clickable progress bar in header)
 - Each step is a separate screen with animated transitions + Back/Next nav
 - Deployed to Vercel: https://re-gtm.vercel.app
+
+---
+Task ID: 22
+Agent: Lead Architect (main)
+Task: Major upgrade — fix AI flickering, add market intelligence modules, project database
+
+AI FLICKERING FIX:
+- AI now generates ONCE when entering Step 3/5, then stays static
+- No more auto-regeneration on every input change
+- Spec-change detection resets flags so next step visit regenerates with new data
+- Regenerate buttons explicitly reset + re-fetch
+
+NEW: 30+ PROJECT DATABASE (Dubai + Abu Dhabi)
+- Dubai: Marina, JBR, Downtown, Business Bay, JLT, Palm Jumeirah, Bluewaters,
+  Dubai Hills, JVC, Creek Harbour, Emaar Beachfront, Dubai South, Jebel Ali
+- Abu Dhabi: Saadiyat, Al Reem, Yas Island, Al Maryah, Al Raha
+- Location-segmented: fair comparison only within same corridor
+
+NEW: MARKET INTELLIGENCE DASHBOARD (4 tabs on Step 3)
+1. Corridor Benchmark — PSF range bar, competitor table, position indicator
+2. Market Trends — 24-month historical + 6-month forecast chart
+3. Buyer Personas — 4 detailed personas with WTP data
+4. Sensitivity Analysis — IRR tornado chart + sensitivity matrix
+
+Deployed: https://re-gtm.vercel.app
