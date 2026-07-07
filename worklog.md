@@ -1167,3 +1167,16 @@ Stage Summary:
     ✅ 2-second staggered animation on right-side panels (0.2s, 0.5s, 0.8s)
     ✅ Final audit: ZERO hardcoded numbers in frontend. Every number traces to
        mock_dubai_marina.json → engine → frontend pipeline.
+
+---
+Task ID: 20
+Agent: Lead Architect (main)
+Task: Complete UX revamp — map too dark, view options limited, single-scroll bad UX.
+
+Work Log:
+- FIXED MAP: switched to CartoDB Voyager light tiles (readable against dark UI)
+- EXPANDED VIEWS: 12 Dubai-specific options (Palm +12%, Burj +9%, Canal +6%, etc.)
+- RESTRUCTURED into 5-step wizard: Land Parcel → Unit Spec → Pricing → Scenarios → GTM
+- NEW: StepProgress component (clickable progress bar in header)
+- Each step is a separate screen with animated transitions + Back/Next nav
+- Deployed to Vercel: https://re-gtm.vercel.app
