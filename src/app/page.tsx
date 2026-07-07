@@ -1,19 +1,28 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Building2,
-  TrendingUp,
-  DollarSign,
-  Brain,
-  Layers,
-  Sparkles,
-  Activity,
-  Calculator,
   Lock,
+  MapPin,
+  Layers,
+  Train,
+  Waves,
+  GraduationCap,
+  ShoppingBag,
+  Trees,
+  Hospital,
+  Route,
+  DollarSign,
+  Activity,
+  Brain,
+  FileDown,
+  Sparkles,
   ChevronRight,
+  Navigation,
 } from "lucide-react";
+import "leaflet/dist/leaflet.css";
 import { THEMES, themeToCssVariables, loadThemeId, saveThemeId, type ThemeId } from "@/lib/themes";
 import { ThemeSwitcher } from "@/components/capital-velocity/ThemeSwitcher";
 import { AnimatedCounter } from "@/components/capital-velocity/AnimatedCounter";
@@ -24,9 +33,10 @@ import { CashflowChart } from "@/components/capital-velocity/CashflowChart";
 import { ScenarioTable } from "@/components/capital-velocity/ScenarioTable";
 import { GTMPanel } from "@/components/capital-velocity/GTMPanel";
 import { ErrorBanner, type ErrorLevel } from "@/components/capital-velocity/ErrorBanner";
-import { usePDFExport } from "@/hooks/use-pdf-export";
-import { FileDown } from "lucide-react";
 import { ConfidenceIndicator } from "@/components/capital-velocity/ConfidenceIndicator";
+import { MapPickerWrapper } from "@/components/capital-velocity/MapPickerWrapper";
+import { ProximityDashboard } from "@/components/capital-velocity/ProximityDashboard";
+import { usePDFExport } from "@/hooks/use-pdf-export";
 import {
   calculateBasePricing,
   applyMicroAdjustments,
@@ -36,9 +46,28 @@ import { calculateHedonicPricing } from "@/lib/engines/hedonic-engine";
 import { simulateCashflow, summarizeCashflow } from "@/lib/engines/cashflow-sim";
 import { generateScenarios, summarizeScenarios } from "@/lib/engines/scenario-engine";
 import { MOCK_COMPS } from "@/lib/engines/mock-data";
+import {
+  DUBAI_POIS,
+  POI_CATEGORIES,
+  calculateProximity,
+  calculateTotalLocationPremium,
+  type POICategory,
+} from "@/lib/engines/dubai-poi";
+
+const POI_ICONS: Record<string, any> = {
+  metro: Train,
+  sea: Waves,
+  school: GraduationCap,
+  mall: ShoppingBag,
+  park: Trees,
+  hospital: Hospital,
+  highway: Route,
+};
+
+const ALL_CATEGORIES: POICategory[] = ["metro", "sea", "school", "mall", "park", "hospital", "highway"];
 
 export default function Home() {
-  // --- Theme -----------------------------------------------------------------
+  // --- Theme ---
   const [themeId, setThemeId] = useState<ThemeId>("obsidian");
   const applyTheme = useCallback((id: ThemeId) => {
     const t = THEMES[id];
@@ -61,7 +90,34 @@ export default function Home() {
     applyTheme(id);
   };
 
-  // --- Input spec ------------------------------------------------------------
+  // --- Map / parcel selection ---
+  const [parcelLat, setParcelLat] = useState<number | null>(25.0772); // Default: Dubai Marina
+  const [parcelLng, setParcelLng] = useState<number | null>(55.1390);
+  const [visibleCategories, setVisibleCategories] = useState<Set<string>>(
+    new Set(ALL_CATEGORIES)
+  );
+
+  const toggleCategory = (cat: string) => {
+    setVisibleCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
+  };
+
+  // --- Proximity + location premium ---
+  const proximityResults = useMemo(() => {
+    if (parcelLat == null || parcelLng == null) return [];
+    return calculateProximity(parcelLat, parcelLng);
+  }, [parcelLat, parcelLng]);
+
+  const locationPremium = useMemo(
+    () => calculateTotalLocationPremium(proximityResults),
+    [proximityResults]
+  );
+
+  // --- Input spec ---
   const [projectName, setProjectName] = useState("Marina Gate IV — Reference Tower");
   const [unitType, setUnitType] = useState<"1BR" | "2BR" | "3BR">("2BR");
   const [microView, setMicroView] = useState("Full Marina");
@@ -74,7 +130,7 @@ export default function Home() {
   const [pricingMethod, setPricingMethod] = useState<"weighted" | "hedonic">("hedonic");
   const [amenityScore, setAmenityScore] = useState(9);
 
-  // --- Deterministic engine outputs ------------------------------------------
+  // --- Engine outputs ---
   const macroView = microToMacroView(microView);
   const basePricing = useMemo(
     () => calculateBasePricing({ unit_type: unitType, view: macroView, developer }),
@@ -84,46 +140,25 @@ export default function Home() {
     () => applyMicroAdjustments(basePricing, { unit_type: unitType, view: microView, floor_number: floor, sqft }),
     [basePricing, unitType, microView, floor, sqft]
   );
-
-  // Hedonic pricing (Phase 11) — regression-based, not weighted average
   const hedonicPricing = useMemo(
     () => calculateHedonicPricing({ floor, amenity_score: amenityScore, view: microView }),
     [floor, amenityScore, microView]
   );
 
-  // Active pricing output based on the selected method
-  // PSF values are rounded to integers — the PricingOutput schema uses StrictInt
-  // (per Phase 12 spec). Floats would fail the schema gate.
-  const activePricing = pricingMethod === "hedonic" ? {
-    floor_psf: Math.round(hedonicPricing.floor),
-    optimal_psf: Math.round(hedonicPricing.optimal),
-    ceiling_psf: Math.round(hedonicPricing.ceiling),
-    estimated_unit_price: Math.round(hedonicPricing.optimal * sqft),
-    method: "hedonic" as const,
-  } : {
-    floor_psf: microPricing.final_floor_psf != null ? Math.round(microPricing.final_floor_psf) : null,
-    optimal_psf: microPricing.final_optimal_psf != null ? Math.round(microPricing.final_optimal_psf) : null,
-    ceiling_psf: microPricing.final_ceiling_psf != null ? Math.round(microPricing.final_ceiling_psf) : null,
-    estimated_unit_price: microPricing.estimated_unit_price != null ? Math.round(microPricing.estimated_unit_price) : null,
-    method: "weighted" as const,
+  // Active pricing = engine output + location premium from map
+  const engineOptimal = pricingMethod === "hedonic" ? hedonicPricing.optimal : (microPricing.final_optimal_psf ?? 0);
+  const engineFloor = pricingMethod === "hedonic" ? hedonicPricing.floor : (microPricing.final_floor_psf ?? 0);
+  const engineCeiling = pricingMethod === "hedonic" ? hedonicPricing.ceiling : (microPricing.final_ceiling_psf ?? 0);
+
+  // Add location premium to the engine output
+  const activePricing = {
+    floor_psf: engineFloor > 0 ? Math.round(engineFloor + locationPremium) : null,
+    optimal_psf: engineOptimal > 0 ? Math.round(engineOptimal + locationPremium) : null,
+    ceiling_psf: engineCeiling > 0 ? Math.round(engineCeiling + locationPremium) : null,
+    estimated_unit_price: engineOptimal > 0 ? Math.round((engineOptimal + locationPremium) * sqft) : null,
+    method: pricingMethod,
   };
 
-  // --- Schema gate validation (Phase 12) -------------------------------------
-  // Mirrors the Pydantic PricingOutput schema: StrictInt for PSF, StrictStr
-  // for confidence with exact enum validation. If this fails, the LLM must
-  // NOT be called — zero hallucination propagation.
-  const schemaGateValid = useMemo(() => {
-    const psfValues = [activePricing.floor_psf, activePricing.optimal_psf, activePricing.ceiling_psf];
-    // All PSF must be non-null integers
-    const allInts = psfValues.every((v) => v != null && Number.isInteger(v));
-    if (!allInts) return { passed: false, error: "PSF values must be strict integers (not null, not float)" };
-    // Confidence must be exactly "High", "Medium", or "Low"
-    const conf = basePricing.data_confidence;
-    if (!["High", "Medium", "Low"].includes(conf)) {
-      return { passed: false, error: `Invalid confidence: ${conf}. Must be High/Medium/Low` };
-    }
-    return { passed: true, error: null };
-  }, [activePricing, basePricing.data_confidence]);
   const compsUsed = useMemo(
     () => MOCK_COMPS.filter((c) => c.unit_type === unitType && c.view === macroView),
     [unitType, macroView]
@@ -146,7 +181,7 @@ export default function Home() {
   const scenarioSummary = useMemo(() => summarizeScenarios(scenarios), [scenarios]);
   const [activeScenario, setActiveScenario] = useState(0);
 
-  // --- LLM narration ---------------------------------------------------------
+  // --- LLM narration ---
   const [gtmNarrative, setGtmNarrative] = useState("");
   const [gtmLoading, setGtmLoading] = useState(false);
   const [rationale, setRationale] = useState("");
@@ -161,31 +196,34 @@ export default function Home() {
       const payload = {
         scenarios, summary: scenarioSummary,
         cashflow: { payment_plan: paymentPlan, timeline_months: timelineMonths, month_0_collected: cashflowSummary.month_0_collected, handover_collected: cashflowSummary.handover_collected },
-        pricing: microPricing,
+        pricing: { ...activePricing, location_premium: locationPremium, parcel_lat: parcelLat, parcel_lng: parcelLng },
       };
-      const brief = `${unitCount}-unit ${unitType} ${macroView} tower in Dubai Marina, ${developer}-developed, ${timelineMonths}-month build, ${paymentPlan} payment plan, Floor ${floor} ${microView} reference unit.`;
+      const brief = `${unitCount}-unit ${unitType} tower at ${parcelLat?.toFixed(4)}, ${parcelLng?.toFixed(4)} — location premium AED ${locationPremium}/sqft. ${developer}-developed, ${timelineMonths}-month build, ${paymentPlan} plan, Floor ${floor} ${microView}.`;
       const res = await fetch("/api/gtm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scenario_data_json: payload, project_brief: brief }) });
       const data = await res.json();
       setGtmNarrative(data.narrative || "[NARRATOR UNAVAILABLE]");
     } catch (e: any) { setGtmNarrative(`[NARRATOR UNAVAILABLE]\n\n${e.message}`); }
     finally { setGtmLoading(false); }
-  }, [scenarios, scenarioSummary, paymentPlan, timelineMonths, cashflowSummary, microPricing, unitType, macroView, developer, floor, microView, unitCount]);
+  }, [scenarios, scenarioSummary, paymentPlan, timelineMonths, cashflowSummary, activePricing, locationPremium, parcelLat, parcelLng, unitCount, unitType, developer, floor, microView]);
 
   const fetchRationale = useCallback(async () => {
     setRationaleLoading(true);
     setRationale("");
     try {
       const pricingPayload = {
-        ...microPricing,
-        base_optimal_psf: basePricing.optimal_psf, base_floor_psf: basePricing.floor_psf, base_ceiling_psf: basePricing.ceiling_psf,
-        base_absorption_days_avg: baseAbsorptionDays, comps_used: compsUsed.map((c) => c.comp_id),
+        ...activePricing,
+        base_optimal_psf: basePricing.optimal_psf,
+        base_absorption_days_avg: baseAbsorptionDays,
+        location_premium: locationPremium,
+        proximity: proximityResults.map(r => ({ category: r.category, nearest: r.nearest?.name, distance_km: r.distanceKm, premium: r.premiumAed })),
+        comps_used: compsUsed.map((c) => c.comp_id),
       };
       const res = await fetch("/api/rationale", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pricing_json: pricingPayload, comps_used: compsUsed }) });
       const data = await res.json();
       setRationale(data.rationale || "[NARRATOR UNAVAILABLE]");
     } catch (e: any) { setRationale(`[NARRATOR UNAVAILABLE]\n\n${e.message}`); }
     finally { setRationaleLoading(false); }
-  }, [microPricing, basePricing, baseAbsorptionDays, compsUsed]);
+  }, [activePricing, basePricing, baseAbsorptionDays, compsUsed, locationPremium, proximityResults]);
 
   const fetchStructured = useCallback(async () => {
     setStructuredLoading(true);
@@ -197,29 +235,19 @@ export default function Home() {
         ceiling_psf: activePricing.ceiling_psf,
         confidence: basePricing.data_confidence,
       };
-      const res = await fetch("/api/structured-narrative", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pricing_data: pricingData }),
-      });
+      const res = await fetch("/api/structured-narrative", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pricing_data: pricingData }) });
       const data = await res.json();
       setStructuredOutput(data);
     } catch (e: any) {
-      setStructuredOutput({
-        target_persona: null, rationale: null, risk_flag: null,
-        _parse_success: false, _schema_gate_passed: false,
-        _error: e.message,
-      });
-    } finally {
-      setStructuredLoading(false);
-    }
+      setStructuredOutput({ target_persona: null, rationale: null, risk_flag: null, _parse_success: false, _schema_gate_passed: false, _error: e.message });
+    } finally { setStructuredLoading(false); }
   }, [activePricing, basePricing.data_confidence]);
 
   useEffect(() => {
-    if (microPricing.final_optimal_psf == null) return;
+    if (activePricing.optimal_psf == null) return;
     const t = setTimeout(() => fetchRationale(), 400);
     return () => clearTimeout(t);
-  }, [microPricing.final_optimal_psf, floor, microView, fetchRationale]);
+  }, [activePricing.optimal_psf, locationPremium, fetchRationale]);
 
   useEffect(() => {
     if (!scenarios.length) return;
@@ -235,35 +263,22 @@ export default function Home() {
 
   const hasData = activePricing.optimal_psf != null;
 
-  // --- Error handling (Phase 15) ---------------------------------------------
+  // --- Error handling ---
   const { exportToPDF, exporting: pdfExporting } = usePDFExport();
-
-  // Derived error state — no useEffect+setState, pure derivation from engine outputs
   const mathFailed = basePricing.data_confidence === "None" || activePricing.optimal_psf == null;
   const llmFailed = !mathFailed && (
     gtmNarrative.includes("[NARRATOR") || gtmNarrative.includes("Error:") ||
     rationale.includes("[NARRATOR") || rationale.includes("Error:")
   );
-  const errorBanner: { level: ErrorLevel; message: string } = mathFailed
-    ? { level: "error", message: "Insufficient comparable data for this specific view/type combination. Adjust the unit spec to match available comps." }
+  const errorBanner = mathFailed
+    ? { level: "error" as ErrorLevel, message: "Insufficient comparable data. Select a different view/type or adjust the unit spec." }
     : llmFailed
-    ? { level: "warning", message: "Strategy narrative generation delayed. Mathematical pricing is accurate and displayed above." }
-    : { level: null, message: "" };
-
-  // Track dismissed state so user can close a banner
+    ? { level: "warning" as ErrorLevel, message: "Strategy narrative generation delayed. Mathematical pricing is accurate and displayed above." }
+    : { level: null as ErrorLevel, message: "" };
   const [bannerDismissed, setBannerDismissed] = useState(false);
-  const effectiveBanner = bannerDismissed
-    ? { level: null as ErrorLevel, message: "" }
-    : errorBanner;
-
-  // Reset dismissed when the error type changes
-  useEffect(() => {
-    setBannerDismissed(false);
-  }, [errorBanner.level]);
-
-  const handleExportPDF = () => {
-    exportToPDF("right-column-content", projectName);
-  };
+  const effectiveBanner = bannerDismissed ? { level: null as ErrorLevel, message: "" } : errorBanner;
+  useEffect(() => { setBannerDismissed(false); }, [errorBanner.level]);
+  const handleExportPDF = () => exportToPDF("right-column-content", projectName);
 
   return (
     <div className="cv-theme-root min-h-screen flex flex-col">
@@ -274,12 +289,12 @@ export default function Home() {
       >
         <div className="px-6 md:px-10 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded flex items-center justify-center" style={{ background: "var(--surface)", border: "1px solid var(--border-strong)" }}>
-              <Building2 size={16} style={{ color: "var(--gold)" }} />
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "var(--surface)", border: "1px solid var(--border-strong)" }}>
+              <Building2 size={18} style={{ color: "var(--gold)" }} />
             </div>
             <div>
               <div className="text-sm font-semibold tracking-tight" style={{ color: "var(--text-heading)" }}>
-                Project Capital Velocity
+                Capital Velocity
               </div>
               <div className="text-[9px] uppercase tracking-[0.2em]" style={{ color: "var(--text-muted)" }}>
                 Off-Plan Capital & Yield Optimisation
@@ -287,7 +302,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* CONFIDENTIAL watermark */}
           <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded" style={{ border: "1px solid var(--negative)" }}>
             <Lock size={10} style={{ color: "var(--negative)" }} />
             <span className="text-[9px] font-semibold uppercase tracking-[0.25em]" style={{ color: "var(--negative)" }}>
@@ -296,17 +310,11 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* EXPORT BOARD PACK — Phase 15 PDF export */}
             <button
               onClick={handleExportPDF}
               disabled={pdfExporting || !hasData}
               className="flex items-center gap-2 px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-[0.15em] transition-all disabled:opacity-40"
-              style={{
-                background: "var(--surface)",
-                border: "1px solid var(--gold)",
-                color: "var(--gold)",
-              }}
-              title="Export the full right column as a dark-mode PDF"
+              style={{ background: "var(--surface)", border: "1px solid var(--gold)", color: "var(--gold)" }}
             >
               <FileDown size={12} />
               {pdfExporting ? "Generating..." : "Export Board Pack"}
@@ -320,458 +328,280 @@ export default function Home() {
         </div>
       </header>
 
-      {/* === ERROR BANNER (Phase 15) === */}
-      <ErrorBanner
-        banner={effectiveBanner}
-        onDismiss={() => setBannerDismissed(true)}
-      />
+      <ErrorBanner banner={effectiveBanner} onDismiss={() => setBannerDismissed(true)} />
 
-      {/* === COMMAND CENTER GRID === */}
-      <main className="flex-1 grid lg:grid-cols-5 gap-0">
-        {/* === LEFT COLUMN — 40% (lg:col-span-2) === */}
-        <aside
-          className="lg:col-span-2 border-r p-6 md:p-8 lg:sticky lg:top-[57px] lg:h-[calc(100vh-57px)] lg:overflow-y-auto"
-          style={{ borderColor: "var(--border)", background: "var(--ground)" }}
+      {/* === HERO === */}
+      <div className="px-6 md:px-10 pt-12 pb-8 max-w-[1600px] mx-auto w-full">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
         >
-          {/* Section label */}
-          <div className="flex items-center gap-2 mb-6">
-            <Layers size={12} style={{ color: "var(--gold)" }} />
-            <span className="text-[10px] font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--text-muted)" }}>
-              Launch Parameters
+          <div className="flex items-center gap-2 mb-4">
+            <Sparkles size={12} style={{ color: "var(--gold)" }} />
+            <span className="text-[11px] uppercase tracking-[0.25em]" style={{ color: "var(--gold)" }}>
+              Select Your Parcel · Analyse · Deploy
             </span>
           </div>
+          <h1 className="text-4xl md:text-5xl font-bold tracking-tight leading-[1.05] mb-3" style={{ color: "var(--text-heading)" }}>
+            Pick your land on the map.
+            <br />
+            <span style={{ color: "var(--gold)" }}>We price the tower</span> on it.
+          </h1>
+          <p className="text-base max-w-2xl leading-relaxed" style={{ color: "var(--text-body)" }}>
+            Click anywhere on the map to drop your parcel. We instantly calculate proximity to
+            metro, sea, schools, and malls — then feed that into a deterministic pricing engine
+            that outputs Floor / Optimal / Ceiling PSF, cashflow timing, and a boardroom-ready GTM.
+          </p>
+        </motion.div>
+      </div>
 
-          {/* Project Name */}
-          <Field label="Project Name">
-            <input
-              type="text"
-              value={projectName}
-              onChange={(e) => setProjectName(e.target.value)}
-              className="w-full px-3 py-2.5 rounded text-sm font-medium outline-none focus:border-[var(--gold)] transition-colors"
-              style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-heading)" }}
-            />
-          </Field>
-
-          {/* Unit Type + View */}
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Unit Type">
-              <Select value={unitType} onChange={setUnitType} options={[["1BR","1BR"],["2BR","2BR"],["3BR","3BR"]]} />
-            </Field>
-            <Field label="Micro View">
-              <Select value={microView} onChange={setMicroView} options={[
-                ["Full Marina","Full Marina +8%"],
-                ["Partial Marina","Partial Marina"],
-                ["Internal","Internal −5%"],
-                ["Sea","Sea"],
-                ["City","City"],
-              ]} />
-            </Field>
-          </div>
-
-          {/* Floor + Sqft */}
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Floor Number">
-              <input type="number" min={1} max={120} value={floor}
-                onChange={(e) => setFloor(Number(e.target.value))}
-                className="w-full px-3 py-2.5 rounded text-sm font-medium outline-none focus:border-[var(--gold)]"
-                style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-heading)" }} />
-            </Field>
-            <Field label="Unit Sqft">
-              <input type="number" min={500} max={10000} step={50} value={sqft}
-                onChange={(e) => setSqft(Number(e.target.value))}
-                className="w-full px-3 py-2.5 rounded text-sm font-medium outline-none focus:border-[var(--gold)]"
-                style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-heading)" }} />
-            </Field>
-          </div>
-
-          {/* Developer */}
-          <Field label="Developer (Brand Tier)">
-            <Select value={developer} onChange={setDeveloper} options={[
-              ["Emaar Properties","Emaar — Tier 1 (+5%)"],
-              ["Select Group","Select Group — Tier 1 (+5%)"],
-              ["Meraas","Meraas — Tier 1 (+5%)"],
-              ["Muraba","Muraba — Tier 2"],
-            ]} />
-          </Field>
-
-          {/* Payment Plan + Timeline */}
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Payment Plan">
-              <Select value={paymentPlan} onChange={setPaymentPlan} options={[["50/50","50/50"],["60/40","60/40"],["70/30","70/30"],["80/20","80/20"]]} />
-            </Field>
-            <Field label="Timeline (mo)">
-              <Select value={String(timelineMonths)} onChange={(v) => setTimelineMonths(Number(v))} options={[["24","24"],["36","36"],["48","48"]]} />
-            </Field>
-          </div>
-
-          {/* Unit Count */}
-          <Field label="Project Unit Count">
-            <input type="number" min={1} value={unitCount}
-              onChange={(e) => setUnitCount(Number(e.target.value))}
-              className="w-full px-3 py-2.5 rounded text-sm font-medium outline-none focus:border-[var(--gold)]"
-              style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-heading)" }} />
-          </Field>
-
-          {/* Pricing Method Toggle — Phase 11 */}
-          <Field label="Pricing Method">
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setPricingMethod("hedonic")}
-                className="px-3 py-2.5 rounded text-xs font-medium transition-all"
-                style={{
-                  background: pricingMethod === "hedonic" ? "var(--surface-raised)" : "var(--surface)",
-                  border: `1px solid ${pricingMethod === "hedonic" ? "var(--gold)" : "var(--border)"}`,
-                  color: pricingMethod === "hedonic" ? "var(--gold)" : "var(--text-muted)",
-                  borderLeftWidth: pricingMethod === "hedonic" ? 2 : 1,
-                }}
-              >
-                Hedonic Regression
-              </button>
-              <button
-                onClick={() => setPricingMethod("weighted")}
-                className="px-3 py-2.5 rounded text-xs font-medium transition-all"
-                style={{
-                  background: pricingMethod === "weighted" ? "var(--surface-raised)" : "var(--surface)",
-                  border: `1px solid ${pricingMethod === "weighted" ? "var(--gold)" : "var(--border)"}`,
-                  color: pricingMethod === "weighted" ? "var(--gold)" : "var(--text-muted)",
-                  borderLeftWidth: pricingMethod === "weighted" ? 2 : 1,
-                }}
-              >
-                Weighted Average
-              </button>
-            </div>
-            <div className="text-[9px] mt-1.5 italic" style={{ color: "var(--text-muted)" }}>
-              {pricingMethod === "hedonic"
-                ? "Regression-based: base intercept + feature coefficients from comp set"
-                : "Phase 2 method: 60% absorption + 40% amenity weighted average"}
-            </div>
-          </Field>
-
-          {/* Amenity Score — only shown for hedonic method */}
-          {pricingMethod === "hedonic" && (
-            <Field label="Amenity Score (1-10)">
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min={1}
-                  max={10}
-                  step={1}
-                  value={amenityScore}
-                  onChange={(e) => setAmenityScore(Number(e.target.value))}
-                  className="flex-1 accent-[var(--gold)]"
-                  style={{ accentColor: "var(--gold)" }}
-                />
-                <span
-                  className="text-sm font-bold font-mono w-8 text-center"
-                  style={{ color: "var(--gold)" }}
-                >
-                  {amenityScore}
-                </span>
-              </div>
-              <div className="text-[9px] mt-1" style={{ color: "var(--text-muted)" }}>
-                AED {45 * amenityScore} contribution ({45} × {amenityScore})
-              </div>
-            </Field>
-          )}
-
-          {/* Floor Picker */}
-          <div className="mt-6 pt-6 border-t" style={{ borderColor: "var(--border)" }}>
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--text-muted)" }}>
-                Floor Premium Scrubber
-              </span>
-              <span className="text-[10px] font-mono" style={{ color: "var(--gold)" }}>
-                +{(floor / 10).toFixed(1)}%
-              </span>
-            </div>
-            <FloorPicker minFloor={1} maxFloor={100} floor={floor} onChange={setFloor} />
-          </div>
-
-          {/* Comp audit */}
-          <div className="mt-6 pt-6 border-t" style={{ borderColor: "var(--border)" }}>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] mb-3" style={{ color: "var(--text-muted)" }}>
-              Comparables Used
-            </div>
-            <div className="space-y-2">
-              {compsUsed.length === 0 ? (
-                <div className="text-xs" style={{ color: "var(--text-muted)" }}>[NO COMPS MATCHED]</div>
-              ) : (
-                compsUsed.map((c) => (
-                  <div key={c.comp_id} className="flex items-center justify-between text-[11px]">
-                    <span style={{ color: "var(--text-body)" }}>{c.comp_id} · {c.project}</span>
-                    <span className="font-mono" style={{ color: "var(--text-muted)" }}>{c.absorption_days_50pct}d</span>
+      {/* === MAP + PROXIMITY (full-width section) === */}
+      <section className="px-6 md:px-10 pb-8 max-w-[1600px] mx-auto w-full">
+        <div className="grid lg:grid-cols-3 gap-6">
+          {/* Map — 2/3 width */}
+          <div className="lg:col-span-2">
+            <div
+              className="rounded-xl border overflow-hidden cv-stagger-1"
+              style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+            >
+              {/* Map header */}
+              <div className="flex items-center gap-3 px-5 py-4 border-b" style={{ borderColor: "var(--border)" }}>
+                <MapPin size={14} style={{ color: "var(--gold)" }} />
+                <div className="flex-1">
+                  <h2 className="text-sm font-semibold" style={{ color: "var(--text-heading)" }}>
+                    Land Parcel Selection
+                  </h2>
+                  <div className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>
+                    {parcelLat ? `${parcelLat.toFixed(4)}, ${parcelLng?.toFixed(4)}` : "Click to select"}
+                    {parcelLat && ` · Location premium: +AED ${locationPremium}/sqft`}
                   </div>
-                ))
-              )}
-            </div>
-            <div className="mt-3 text-[10px]" style={{ color: "var(--text-muted)" }}>
-              Confidence: <span style={{ color: basePricing.data_confidence === "High" ? "var(--positive)" : basePricing.data_confidence === "Medium" ? "var(--gold)" : "var(--negative)" }}>{basePricing.data_confidence}</span> · {basePricing.comp_count} comps
+                </div>
+              </div>
+
+              {/* Map container */}
+              <div style={{ height: "500px" }}>
+                <MapPickerWrapper
+                  selectedLat={parcelLat}
+                  selectedLng={parcelLng}
+                  onSelect={(lat, lng) => { setParcelLat(lat); setParcelLng(lng); }}
+                  visibleCategories={visibleCategories}
+                  proximityResults={proximityResults}
+                />
+              </div>
+
+              {/* POI layer toggles */}
+              <div className="px-5 py-3 border-t flex items-center gap-2 flex-wrap" style={{ borderColor: "var(--border)" }}>
+                <span className="text-[9px] font-semibold uppercase tracking-wider mr-2" style={{ color: "var(--text-muted)" }}>
+                  Layers:
+                </span>
+                {ALL_CATEGORIES.map((cat) => {
+                  const config = POI_CATEGORIES[cat];
+                  const Icon = POI_ICONS[cat];
+                  const active = visibleCategories.has(cat);
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => toggleCategory(cat)}
+                      className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-medium transition-all"
+                      style={{
+                        background: active ? `color-mix(in srgb, ${config.color} 15%, transparent)` : "var(--surface-raised)",
+                        border: `1px solid ${active ? config.color : "var(--border)"}`,
+                        color: active ? config.color : "var(--text-muted)",
+                        opacity: active ? 1 : 0.5,
+                      }}
+                    >
+                      <Icon size={10} />
+                      {config.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
-        </aside>
 
-        {/* === RIGHT COLUMN — 60% (lg:col-span-3) === */}
-        <section
-          id="right-column-content"
-          className="lg:col-span-3 p-6 md:p-8 space-y-6"
-          style={{ background: "var(--ground)" }}
-        >
-          {/* === PANEL 1: PRICING MATRIX === */}
-          <Panel
-            icon={<DollarSign size={14} />}
-            title="Pricing Matrix"
-            staggerIndex={1}
-            subtitle={
-              pricingMethod === "hedonic"
-                ? "Hedonic Regression · base intercept + feature coefficients"
-                : "Weighted Average · 60% absorption + 40% amenity"
-            }
-            hasData={hasData}
-          >
-            {/* Method badge + Schema gate badge */}
-            <div className="flex items-center gap-2 mb-4 flex-wrap">
-              <span
-                className="text-[9px] font-bold uppercase tracking-[0.15em] px-2 py-1 rounded"
-                style={{
-                  background: "var(--surface-raised)",
-                  color: "var(--gold)",
-                  border: "1px solid var(--gold)",
-                }}
-              >
-                {pricingMethod === "hedonic" ? "Hedonic" : "Weighted Avg"}
-              </span>
-              <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>
-                {pricingMethod === "hedonic"
-                  ? "Regression-based — not a simple average"
-                  : "Phase 2 method — absorption-weighted"}
-              </span>
-
-              {/* Schema gate badge — Phase 12 zero hallucination propagation */}
-              <span
-                className="text-[9px] font-bold uppercase tracking-[0.15em] px-2 py-1 rounded ml-auto flex items-center gap-1.5"
-                style={{
-                  background: schemaGateValid.passed ? "color-mix(in srgb, var(--positive) 12%, transparent)" : "color-mix(in srgb, var(--negative) 12%, transparent)",
-                  color: schemaGateValid.passed ? "var(--positive)" : "var(--negative)",
-                  border: `1px solid ${schemaGateValid.passed ? "var(--positive)" : "var(--negative)"}`,
-                }}
-                title={schemaGateValid.error || "PricingOutput schema validated — LLM may be called"}
-              >
-                <div
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{ background: schemaGateValid.passed ? "var(--positive)" : "var(--negative)" }}
-                />
-                {schemaGateValid.passed ? "Schema Gate: Passed" : "Schema Gate: FAILED"}
-              </span>
+          {/* Proximity dashboard — 1/3 width */}
+          <div className="lg:col-span-1 cv-stagger-2">
+            <div
+              className="rounded-xl border p-5 h-full"
+              style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <Navigation size={14} style={{ color: "var(--gold)" }} />
+                <h2 className="text-sm font-semibold" style={{ color: "var(--text-heading)" }}>
+                  Proximity Analysis
+                </h2>
+              </div>
+              <ProximityDashboard results={proximityResults} totalPremium={locationPremium} />
             </div>
+          </div>
+        </div>
+      </section>
 
-            {/* Tier tiles — large bold PSF numbers */}
+      {/* === UNIT SPEC BAR === */}
+      <section className="px-6 md:px-10 pb-8 max-w-[1600px] mx-auto w-full">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="rounded-xl border p-5 cv-stagger-2"
+          style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <Layers size={12} style={{ color: "var(--gold)" }} />
+            <span className="text-[10px] font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--text-muted)" }}>
+              Unit Specification
+            </span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+            <SpecField label="Project Name" value={projectName} onChange={setProjectName} type="text" />
+            <SpecSelect label="Unit Type" value={unitType} onChange={(v) => setUnitType(v as any)} options={[["1BR","1BR"],["2BR","2BR"],["3BR","3BR"]]} />
+            <SpecSelect label="View" value={microView} onChange={setMicroView} options={[["Full Marina","Full Marina +8%"],["Partial Marina","Partial Marina"],["Internal","Internal −5%"],["Sea","Sea"],["City","City"]]} />
+            <SpecField label="Floor" value={String(floor)} onChange={(v) => setFloor(Number(v))} type="number" />
+            <SpecField label="Sqft" value={String(sqft)} onChange={(v) => setSqft(Number(v))} type="number" />
+            <SpecSelect label="Developer" value={developer} onChange={setDeveloper} options={[["Emaar Properties","Emaar (+5%)"],["Select Group","Select Group (+5%)"],["Meraas","Meraas (+5%)"],["Muraba","Muraba (Tier 2)"]]} />
+            <SpecSelect label="Plan" value={paymentPlan} onChange={setPaymentPlan} options={[["50/50","50/50"],["60/40","60/40"],["70/30","70/30"],["80/20","80/20"]]} />
+          </div>
+
+          {/* Pricing method toggle */}
+          <div className="flex items-center gap-2 mt-4 pt-4 border-t" style={{ borderColor: "var(--border)" }}>
+            <span className="text-[10px] font-semibold uppercase tracking-wider mr-2" style={{ color: "var(--text-muted)" }}>
+              Method:
+            </span>
+            {(["hedonic", "weighted"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setPricingMethod(m)}
+                className="px-3 py-1.5 rounded text-xs font-medium transition-all"
+                style={{
+                  background: pricingMethod === m ? "var(--surface-raised)" : "var(--surface)",
+                  border: `1px solid ${pricingMethod === m ? "var(--gold)" : "var(--border)"}`,
+                  color: pricingMethod === m ? "var(--gold)" : "var(--text-muted)",
+                }}
+              >
+                {m === "hedonic" ? "Hedonic Regression" : "Weighted Average"}
+              </button>
+            ))}
+            {pricingMethod === "hedonic" && (
+              <div className="flex items-center gap-2 ml-4">
+                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>Amenity:</span>
+                <input type="range" min={1} max={10} value={amenityScore} onChange={(e) => setAmenityScore(Number(e.target.value))} className="w-20 accent-[var(--gold)]" style={{ accentColor: "var(--gold)" }} />
+                <span className="text-xs font-bold font-mono w-6" style={{ color: "var(--gold)" }}>{amenityScore}</span>
+              </div>
+            )}
+          </div>
+        </motion.div>
+      </section>
+
+      {/* === RIGHT COLUMN CONTENT (Pricing + Chart + Scenarios + GTM) === */}
+      <main id="right-column-content" className="px-6 md:px-10 pb-16 max-w-[1600px] mx-auto w-full space-y-6">
+
+        {/* === PRICING MATRIX === */}
+        <motion.section
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+          className="rounded-xl border overflow-hidden cv-stagger-3"
+          style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+        >
+          <div className="flex items-center gap-3 px-5 py-4 border-b" style={{ borderColor: "var(--border)" }}>
+            <DollarSign size={14} style={{ color: "var(--gold)" }} />
+            <div className="flex-1">
+              <h2 className="text-sm font-semibold" style={{ color: "var(--text-heading)" }}>Pricing Matrix</h2>
+              <div className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>
+                Engine PSF + Location Premium (AED {locationPremium}/sqft from map)
+              </div>
+            </div>
+          </div>
+          <div className="p-5">
+            {/* Tier tiles */}
             <div className="grid grid-cols-3 gap-4 mb-5">
               {[
-                { name: "Floor", val: activePricing.floor_psf, mult: "× 0.96", desc: "Defensive clearance", color: "var(--text-body)" },
-                { name: "Optimal", val: activePricing.optimal_psf, mult: pricingMethod === "hedonic" ? "calculated" : "× 1.03", desc: "Target realized price", color: "var(--gold)" },
-                { name: "Ceiling", val: activePricing.ceiling_psf, mult: "× 1.12", desc: "Negotiation headroom", color: "var(--accent)" },
+                { name: "Floor", val: activePricing.floor_psf, desc: "Defensive clearance", color: "var(--text-body)" },
+                { name: "Optimal", val: activePricing.optimal_psf, desc: "Target realized price", color: "var(--gold)" },
+                { name: "Ceiling", val: activePricing.ceiling_psf, desc: "Negotiation headroom", color: "var(--accent)" },
               ].map((t, i) => (
                 <motion.div
                   key={t.name}
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.08, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                  transition={{ delay: i * 0.08, duration: 0.4 }}
                   className="p-5 rounded-lg border"
-                  style={{
-                    background: "var(--surface)",
-                    borderColor: t.name === "Optimal" ? "var(--gold)" : "var(--border)",
-                    borderLeftWidth: t.name === "Optimal" ? 3 : 1,
-                  }}
+                  style={{ background: "var(--surface-raised)", borderColor: t.name === "Optimal" ? "var(--gold)" : "var(--border)", borderLeftWidth: t.name === "Optimal" ? 3 : 1 }}
                 >
-                  <div className="flex items-center justify-between mb-3">
-                    <span
-                      className="text-[10px] font-semibold uppercase tracking-[0.15em]"
-                      style={{ color: t.color }}
-                    >
-                      {t.name}
-                    </span>
-                    <span className="text-[9px] font-mono" style={{ color: "var(--text-muted)" }}>
-                      {t.mult}
-                    </span>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: t.color }}>{t.name}</div>
+                  <div className="text-3xl font-bold tracking-tight" style={{ color: t.color }}>
+                    {t.val != null ? <AnimatedCounter value={t.val} format="psf" duration={1.1} /> : <span style={{ color: "var(--text-muted)" }}>[DATA MISSING]</span>}
                   </div>
-                  {/* Large bold PSF number — Inter, text-3xl, font-bold */}
-                  <div
-                    className="text-3xl font-bold tracking-tight leading-none mb-2"
-                    style={{ color: t.color, fontFamily: "var(--font-inter), sans-serif" }}
-                  >
-                    {t.val != null ? (
-                      <AnimatedCounter value={t.val} format="psf" duration={1.1} />
-                    ) : (
-                      <span className="text-lg" style={{ color: "var(--text-muted)" }}>
-                        [DATA MISSING]
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                    {t.desc}
-                  </div>
+                  <div className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>{t.desc}</div>
                 </motion.div>
               ))}
             </div>
 
-            {/* Confidence Indicator — horizontal bar, green/yellow/red */}
-            <div
-              className="p-4 rounded-lg border mb-4"
-              style={{ background: "var(--surface)", borderColor: "var(--border)" }}
-            >
-              <ConfidenceIndicator
-                level={basePricing.data_confidence}
-                compCount={basePricing.comp_count}
-              />
-            </div>
-
-            {/* Estimated unit price + adjustments (or hedonic decomposition) */}
+            {/* Confidence + estimated price */}
             <div className="grid grid-cols-2 gap-4 mb-4">
-              <div className="p-4 rounded-lg border" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
-                <div className="text-[9px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
-                  Estimated Unit Price
-                </div>
+              <div className="p-4 rounded-lg border" style={{ background: "var(--surface-raised)", borderColor: "var(--border)" }}>
+                <div className="text-[9px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>Estimated Unit Price</div>
                 <div className="text-2xl font-semibold" style={{ color: "var(--text-heading)" }}>
                   {activePricing.estimated_unit_price != null ? <AnimatedCounter value={activePricing.estimated_unit_price} format="aed" duration={1.2} /> : <span style={{ color: "var(--text-muted)" }}>[MISSING]</span>}
                 </div>
                 <div className="text-[9px] mt-1" style={{ color: "var(--text-muted)" }}>Optimal PSF × {sqft} sqft</div>
               </div>
-
-              {/* Adjustments — different content per method */}
-              {pricingMethod === "hedonic" ? (
-                <div className="p-4 rounded-lg border space-y-2" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
-                  <div className="text-[9px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--gold)" }}>
-                    Hedonic Decomposition
-                  </div>
-                  <HedonicRow label="Base intercept" value={hedonicPricing.decomposition.base_intercept} />
-                  <HedonicRow label={`View premium × ${hedonicPricing.decomposition.marina_indicator}`} value={hedonicPricing.decomposition.view_contribution} />
-                  <HedonicRow label={`Floor ${floor} × ${hedonicPricing.floor_coefficient}`} value={hedonicPricing.decomposition.floor_contribution} />
-                  <HedonicRow label={`Amenity ${amenityScore} × ${hedonicPricing.amenity_coefficient}`} value={hedonicPricing.decomposition.amenity_contribution} />
-                  <div className="pt-1.5 mt-1.5 border-t flex justify-between items-center text-[11px]" style={{ borderColor: "var(--border)" }}>
-                    <span className="font-semibold" style={{ color: "var(--text-heading)" }}>Calculated PSF</span>
-                    <span className="font-mono font-bold" style={{ color: "var(--gold)" }}>AED {hedonicPricing.calculated_psf.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-4 rounded-lg border space-y-2" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
-                  <AdjRow label="Floor premium" value={microPricing.floor_premium_pct} />
-                  <AdjRow label="View modifier" value={microPricing.micro_view_modifier_pct} />
-                  <AdjRow label="Combined uplift" value={microPricing.combined_adjustment_pct} bold />
-                </div>
-              )}
+              <div className="p-4 rounded-lg border" style={{ background: "var(--surface-raised)", borderColor: "var(--border)" }}>
+                <ConfidenceIndicator level={basePricing.data_confidence} compCount={basePricing.comp_count} />
+              </div>
             </div>
 
-            {/* View premium audit trail — only for hedonic */}
-            {pricingMethod === "hedonic" && (
-              <div className="p-4 rounded-lg border mb-4" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
-                <div className="text-[9px] font-semibold uppercase tracking-[0.15em] mb-3" style={{ color: "var(--text-muted)" }}>
-                  View Premium Isolation Audit
-                </div>
-                <div className="grid grid-cols-2 gap-4 text-[11px]">
-                  <div>
-                    <div style={{ color: "var(--text-muted)" }}>Premium-view comps (Marina)</div>
-                    <div className="font-mono mt-0.5" style={{ color: "var(--text-body)" }}>
-                      {hedonicPricing.comps_used_for_premium.premium_view_comps.join(", ") || "[none]"}
-                    </div>
-                    <div className="mt-1" style={{ color: "var(--text-muted)" }}>
-                      Avg residual: <span className="font-mono" style={{ color: "var(--text-body)" }}>AED {hedonicPricing.comps_used_for_premium.premium_avg_residual.toLocaleString()}</span>
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ color: "var(--text-muted)" }}>Baseline-view comps (City)</div>
-                    <div className="font-mono mt-0.5" style={{ color: "var(--text-body)" }}>
-                      {hedonicPricing.comps_used_for_premium.baseline_view_comps.join(", ") || "[none]"}
-                    </div>
-                    <div className="mt-1" style={{ color: "var(--text-muted)" }}>
-                      Avg residual: <span className="font-mono" style={{ color: "var(--text-body)" }}>AED {hedonicPricing.comps_used_for_premium.baseline_avg_residual.toLocaleString()}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-3 pt-3 border-t flex justify-between items-center" style={{ borderColor: "var(--border)" }}>
-                  <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
-                    Isolated View Premium
-                  </span>
-                  <span className="text-lg font-bold font-mono" style={{ color: "var(--gold)" }}>
-                    AED {hedonicPricing.view_premium.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* Pricing rationale — italicized gray text per Phase 10 spec */}
-            <div
-              className="p-4 rounded-lg border-l-2"
-              style={{
-                background: "var(--surface)",
-                borderColor: "var(--border)",
-                borderLeftColor: "var(--gold)",
-              }}
-            >
+            {/* Rationale */}
+            <div className="p-4 rounded-lg border-l-2" style={{ background: "var(--surface-raised)", borderColor: "var(--border)", borderLeftColor: "var(--gold)" }}>
               <div className="flex items-center justify-between mb-2">
-                <span
-                  className="text-[9px] font-semibold uppercase tracking-[0.15em]"
-                  style={{ color: "var(--gold)" }}
-                >
-                  Pricing Rationale · PropTech Data Scientist
-                </span>
-                <button
-                  onClick={fetchRationale}
-                  disabled={rationaleLoading}
-                  className="text-[9px] px-2 py-0.5 rounded disabled:opacity-50 transition-colors"
-                  style={{
-                    background: "var(--surface-raised)",
-                    border: "1px solid var(--border)",
-                    color: "var(--text-muted)",
-                  }}
-                >
-                  {rationaleLoading ? "Generating..." : "Regenerate"}
+                <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: "var(--gold)" }}>Pricing Rationale · PropTech Data Scientist</span>
+                <button onClick={fetchRationale} disabled={rationaleLoading} className="text-[9px] px-2 py-0.5 rounded disabled:opacity-50" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+                  {rationaleLoading ? "..." : "↻"}
                 </button>
               </div>
               {rationaleLoading && !rationale ? (
                 <div className="space-y-1.5">
-                  <div className="h-2.5 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: "92%" }} />
-                  <div className="h-2.5 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: "78%" }} />
-                  <div className="h-2.5 rounded animate-pulse" style={{ background: "var(--surface-raised)", width: "85%" }} />
+                  <div className="h-2.5 rounded animate-pulse" style={{ background: "var(--surface)", width: "92%" }} />
+                  <div className="h-2.5 rounded animate-pulse" style={{ background: "var(--surface)", width: "78%" }} />
                 </div>
               ) : rationale ? (
                 <div style={{ color: "var(--text-body)" }}>
-                  <Typewriter
-                    text={rationale}
-                    speed={18}
-                    className="text-xs italic leading-relaxed"
-                  />
+                  <Typewriter text={rationale} speed={18} className="text-xs italic leading-relaxed" />
                 </div>
               ) : (
-                <div
-                  className="text-xs italic"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  Adjust parameters to generate rationale.
-                </div>
+                <div className="text-xs italic" style={{ color: "var(--text-muted)" }}>Adjust parameters to generate rationale.</div>
               )}
             </div>
-          </Panel>
+          </div>
+        </motion.section>
 
-          {/* === PANEL 2: CAPITAL VELOCITY CHART === */}
-          <Panel
-            icon={<Activity size={14} />}
-            title="Capital Velocity Chart"
-            staggerIndex={2}
-            subtitle="Price vs Absorption scenarios + Cashflow timing"
-            hasData={hasData}
-          >
-            {/* Scenario tabs + KPIs */}
+        {/* === CAPITAL VELOCITY === */}
+        <motion.section
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+          className="rounded-xl border overflow-hidden cv-stagger-4"
+          style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+        >
+          <div className="flex items-center gap-3 px-5 py-4 border-b" style={{ borderColor: "var(--border)" }}>
+            <Activity size={14} style={{ color: "var(--gold)" }} />
+            <div className="flex-1">
+              <h2 className="text-sm font-semibold" style={{ color: "var(--text-heading)" }}>Capital Velocity Chart</h2>
+              <div className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>Price vs Absorption scenarios + Cashflow timing</div>
+            </div>
+          </div>
+          <div className="p-5">
             <ScenarioChart scenarios={scenarios} activeIndex={activeScenario} onSelect={setActiveScenario} />
-
-            {/* Scenario summary */}
             <div className="grid grid-cols-4 gap-3 mt-4 pt-4 border-t" style={{ borderColor: "var(--border)" }}>
               <MiniStat label="Rev Spread" value={scenarioSummary.revenue_spread_aed} format="aed" />
               <MiniStat label="Carry Spread" value={scenarioSummary.carry_cost_spread_aed} format="aed" />
               <MiniStat label="Net Spread" value={scenarioSummary.net_position_spread_aed} format="aed" accent />
               <MiniStat label="Days Spread" value={scenarioSummary.absorption_spread_days} format="days" />
             </div>
-
-            {/* Cashflow chart */}
             <div className="mt-5 pt-4 border-t" style={{ borderColor: "var(--border)" }}>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
@@ -784,26 +614,19 @@ export default function Home() {
               </div>
               <CashflowChart data={cashflowData} paymentPlan={paymentPlan} />
             </div>
-
-            {/* === SCENARIO WAR-GAMING TABLE (Phase 12) === */}
             <div className="mt-5 pt-4 border-t" style={{ borderColor: "var(--border)" }}>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
                   Scenario War-Gaming Table
                 </span>
-                <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>
-                  Base row highlighted · platinum left border
-                </span>
               </div>
-              <ScenarioTable
-                scenarios={scenarios}
-                recommendedScenario={scenarioSummary.best_net_scenario}
-              />
+              <ScenarioTable scenarios={scenarios} recommendedScenario={scenarioSummary.best_net_scenario} />
             </div>
-          </Panel>
+          </div>
+        </motion.section>
 
-          {/* === PANEL 3: GO-TO-MARKET STRATEGY & BUYER PERSONA (Phase 13+14) === */}
-          <div className="cv-stagger-3">
+        {/* === GTM PANEL === */}
+        <div className="cv-stagger-5">
           <GTMPanel
             narrative={gtmNarrative}
             loading={gtmLoading}
@@ -820,62 +643,54 @@ export default function Home() {
             scenarioData={scenarios}
             cashflowSummary={cashflowSummary}
           />
-          </div>
-        </section>
+        </div>
       </main>
+
+      {/* Footer */}
+      <footer className="px-6 md:px-10 py-8 border-t" style={{ borderColor: "var(--border)" }}>
+        <div className="max-w-[1600px] mx-auto flex items-center justify-between">
+          <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+            Project Capital Velocity · Off-Plan Capital & Yield Optimisation · Anti-Hallucination Protocol Enforced
+          </div>
+          <div className="flex items-center gap-2 text-[10px]" style={{ color: "var(--text-muted)" }}>
+            <MapPin size={10} style={{ color: "var(--gold)" }} />
+            Map data © OpenStreetMap · Tiles © CARTO
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
 
 /* === Shared components === */
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function SpecField({ label, value, onChange, type }: { label: string; value: string; onChange: (v: string) => void; type: string }) {
   return (
-    <div className="mb-4">
-      <label className="text-[10px] font-semibold uppercase tracking-[0.15em] mb-1.5 block" style={{ color: "var(--text-muted)" }}>
-        {label}
-      </label>
-      {children}
+    <div>
+      <label className="text-[9px] font-semibold uppercase tracking-[0.15em] mb-1.5 block" style={{ color: "var(--text-muted)" }}>{label}</label>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-3 py-2 rounded text-xs font-medium outline-none focus:border-[var(--gold)]"
+        style={{ background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-heading)" }}
+      />
     </div>
   );
 }
 
-function Select({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: [string, string][] }) {
+function SpecSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: [string, string][] }) {
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full px-3 py-2.5 rounded text-sm font-medium outline-none focus:border-[var(--gold)] cursor-pointer appearance-none"
-      style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-heading)" }}
-    >
-      {options.map(([val, label]) => (
-        <option key={val} value={val}>{label}</option>
-      ))}
-    </select>
-  );
-}
-
-function AdjRow({ label, value, bold }: { label: string; value: number | null; bold?: boolean }) {
-  return (
-    <div className="flex justify-between items-center text-[11px]">
-      <span style={{ color: "var(--text-muted)" }}>{label}</span>
-      <span className="font-mono" style={{
-        color: value == null ? "var(--text-muted)" : value >= 0 ? "var(--positive)" : "var(--negative)",
-        fontWeight: bold ? 600 : 400,
-      }}>
-        {value == null ? "—" : `${value >= 0 ? "+" : ""}${value}%`}
-      </span>
-    </div>
-  );
-}
-
-function HedonicRow({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="flex justify-between items-center text-[11px]">
-      <span style={{ color: "var(--text-muted)" }}>{label}</span>
-      <span className="font-mono" style={{ color: "var(--text-body)" }}>
-        AED {value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-      </span>
+    <div>
+      <label className="text-[9px] font-semibold uppercase tracking-[0.15em] mb-1.5 block" style={{ color: "var(--text-muted)" }}>{label}</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-3 py-2 rounded text-xs font-medium outline-none focus:border-[var(--gold)] cursor-pointer appearance-none"
+        style={{ background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-heading)" }}
+      >
+        {options.map(([val, lbl]) => <option key={val} value={val}>{lbl}</option>)}
+      </select>
     </div>
   );
 }
@@ -888,36 +703,5 @@ function MiniStat({ label, value, format, accent }: { label: string; value: numb
         {value != null ? <AnimatedCounter value={value} format={format} duration={0.7} /> : <span style={{ color: "var(--text-muted)" }}>—</span>}
       </div>
     </div>
-  );
-}
-
-function Panel({ icon, title, subtitle, hasData, children, staggerIndex }: { icon: React.ReactNode; title: string; subtitle: string; hasData: boolean; children: React.ReactNode; staggerIndex?: number }) {
-  const staggerClass = staggerIndex ? `cv-stagger-${staggerIndex}` : "";
-  return (
-    <motion.section
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-      className={`rounded-xl border overflow-hidden ${staggerClass}`}
-      style={{ background: "var(--surface)", borderColor: "var(--border)" }}
-    >
-      {/* Panel header */}
-      <div className="flex items-center gap-3 px-5 py-4 border-b" style={{ borderColor: "var(--border)" }}>
-        <div style={{ color: "var(--gold)" }}>{icon}</div>
-        <div className="flex-1">
-          <h2 className="text-sm font-semibold" style={{ color: "var(--text-heading)" }}>{title}</h2>
-          <div className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>{subtitle}</div>
-        </div>
-        {!hasData && (
-          <span className="text-[9px] px-2 py-0.5 rounded uppercase tracking-wider" style={{ background: "var(--surface-raised)", color: "var(--text-muted)" }}>
-            Waiting
-          </span>
-        )}
-      </div>
-      {/* Panel body */}
-      <div className="p-5">
-        {children}
-      </div>
-    </motion.section>
   );
 }
