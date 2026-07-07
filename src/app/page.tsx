@@ -16,6 +16,7 @@ import {
   ChevronRight,
   ChevronLeft,
   Check,
+  Shield,
   Train,
   Waves,
   GraduationCap,
@@ -39,6 +40,7 @@ import { MapPickerWrapper } from "@/components/capital-velocity/MapPickerWrapper
 import { ProximityDashboard } from "@/components/capital-velocity/ProximityDashboard";
 import { StepProgress } from "@/components/capital-velocity/StepProgress";
 import { MarketIntelligence } from "@/components/capital-velocity/MarketIntelligence";
+import { FinanceCompliancePanel } from "@/components/capital-velocity/FinanceCompliancePanel";
 import { usePDFExport } from "@/hooks/use-pdf-export";
 import {
   calculateBasePricing,
@@ -53,6 +55,7 @@ import {
   POI_CATEGORIES,
   calculateProximity,
   calculateTotalLocationPremium,
+  detectEmirate,
   type POICategory,
 } from "@/lib/engines/dubai-poi";
 import { getAllCorridors } from "@/lib/engines/project-database";
@@ -113,7 +116,7 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const nextStep = () => goToStep(Math.min(step + 1, 5));
+  const nextStep = () => goToStep(Math.min(step + 1, 6));
   const prevStep = () => goToStep(Math.max(step - 1, 1));
 
   // --- Map / parcel selection ---
@@ -286,7 +289,7 @@ export default function Home() {
 
   // Generate GTM ONCE when entering Step 5
   useEffect(() => {
-    if (step === 5 && !gtmGenerated && scenarios.length > 0) {
+    if (step === 6 && !gtmGenerated && scenarios.length > 0) {
       fetchGTM();
     }
   }, [step, gtmGenerated, scenarios.length]); // intentionally not depending on fetchGTM
@@ -326,7 +329,7 @@ export default function Home() {
                 Capital Velocity
               </div>
               <div className="text-[9px] uppercase tracking-[0.2em]" style={{ color: "var(--text-muted)" }}>
-                Step {step} of 5 · {["Land Parcel", "Unit Spec", "Pricing", "Scenarios", "GTM Strategy"][step - 1]}
+                Step {step} of 6 · {["Land Parcel", "Unit Spec", "Pricing", "Finance & Compliance", "Scenarios", "GTM Strategy"][step - 1]}
               </div>
             </div>
           </div>
@@ -339,7 +342,7 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-3">
-            {step === 5 && (
+            {step === 6 && (
               <button
                 onClick={handleExportPDF}
                 disabled={pdfExporting || !hasData}
@@ -626,12 +629,35 @@ export default function Home() {
                   />
                 </div>
 
-                <StepNav onPrev={prevStep} onNext={nextStep} nextLabel="View Scenarios →" prevLabel="← Back to Spec" />
+                <StepNav onPrev={prevStep} onNext={nextStep} nextLabel="Financial Analysis →" prevLabel="← Back to Spec" />
               </div>
             )}
 
-            {/* === STEP 4: SCENARIOS === */}
+            {/* === STEP 4: FINANCIAL & COMPLIANCE === */}
             {step === 4 && (
+              <div>
+                <StepHeader
+                  icon={<Shield size={16} />}
+                  title="Financial Analysis & Compliance"
+                  subtitle="P&L statement · IRR/NPV · Construction costs · RERA/DLD compliance · Buyer survey data"
+                />
+
+                <FinanceCompliancePanel
+                  emirate={parcelLat && parcelLng ? detectEmirate(parcelLat, parcelLng) : "Dubai"}
+                  totalSaleableArea={sqft * unitCount}
+                  avgPricePsqft={activePricing.optimal_psf ?? 2500}
+                  totalUnits={unitCount}
+                  landCost={50000000}
+                  constructionMonths={timelineMonths}
+                  corridor={corridor}
+                />
+
+                <StepNav onPrev={prevStep} onNext={nextStep} nextLabel="View Scenarios →" prevLabel="← Back to Pricing" />
+              </div>
+            )}
+
+            {/* === STEP 5: SCENARIOS === */}
+            {step === 5 && (
               <div>
                 <StepHeader
                   icon={<Activity size={16} />}
@@ -679,12 +705,12 @@ export default function Home() {
                   </div>
                 </div>
 
-                <StepNav onPrev={prevStep} onNext={nextStep} nextLabel="Generate GTM Strategy →" prevLabel="← Back to Pricing" />
+                <StepNav onPrev={prevStep} onNext={nextStep} nextLabel="Generate GTM Strategy →" prevLabel="← Back to Finance" />
               </div>
             )}
 
-            {/* === STEP 5: GTM === */}
-            {step === 5 && (
+            {/* === STEP 6: GTM === */}
+            {step === 6 && (
               <div>
                 <StepHeader
                   icon={<Brain size={16} />}

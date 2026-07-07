@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { MapPin, Settings, DollarSign, TrendingUp, Brain, Check } from "lucide-react";
+import { MapPin, Settings, DollarSign, Shield, TrendingUp, Brain, Check } from "lucide-react";
 
 interface StepProgressProps {
   currentStep: number;
@@ -13,8 +13,9 @@ const STEPS = [
   { id: 1, label: "Land Parcel", icon: MapPin },
   { id: 2, label: "Unit Spec", icon: Settings },
   { id: 3, label: "Pricing", icon: DollarSign },
-  { id: 4, label: "Scenarios", icon: TrendingUp },
-  { id: 5, label: "GTM Strategy", icon: Brain },
+  { id: 4, label: "Finance & Compliance", icon: Shield },
+  { id: 5, label: "Scenarios", icon: TrendingUp },
+  { id: 6, label: "GTM Strategy", icon: Brain },
 ];
 
 export function StepProgress({ currentStep, maxStep, onStepClick }: StepProgressProps) {

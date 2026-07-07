@@ -11,8 +11,9 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import {
-  DUBAI_POIS,
+  UAE_POIS,
   POI_CATEGORIES,
+  detectEmirate,
   calculateProximity,
   type ProximityResult,
 } from "@/lib/engines/dubai-poi";
@@ -94,8 +95,10 @@ export function MapPicker({
   const defaultCenter: [number, number] = [25.0772, 55.1390];
 
   // Filter visible POIs
-  const visiblePOIs = DUBAI_POIS.filter((poi) =>
-    visibleCategories.has(poi.category)
+  // Filter visible POIs — emirate-aware (show POIs for the parcel's emirate)
+  const parcelEmirate = selectedLat ? detectEmirate(selectedLat, selectedLng || 0) : "Dubai";
+  const visiblePOIs = UAE_POIS.filter((poi) =>
+    visibleCategories.has(poi.category) && poi.emirate === parcelEmirate
   );
 
   // Pan to selected location when it changes
