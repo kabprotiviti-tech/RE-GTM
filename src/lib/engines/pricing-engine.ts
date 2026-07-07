@@ -40,7 +40,16 @@ const FLOOR_PREMIUM_DIVISOR = 1000.0;
 
 const MICRO_VIEW_MODIFIERS: Record<string, number> = {
   "full marina": 0.08,
-  internal: -0.05,
+  "partial marina": 0.04,
+  "internal": -0.05,
+  "full sea": 0.10,
+  "partial sea": 0.05,
+  "palm view": 0.12,
+  "burj view": 0.09,
+  "canal view": 0.06,
+  "szr view": 0.02,
+  "golf view": 0.07,
+  "lake view": 0.04,
 };
 const MICRO_VIEW_DEFAULT_MODIFIER = 0.0;
 
@@ -300,7 +309,8 @@ export function computeFullPricing(input: MicroAdjustInput): {
 export function microToMacroView(microView: string): "Marina" | "Sea" | "City" {
   const v = microView.toLowerCase();
   if (v.includes("marina")) return "Marina";
-  if (v.includes("sea") || v.includes("full")) return "Sea";
-  if (v.includes("city")) return "City";
-  return "Sea"; // default to Sea for the prototype
+  if (v.includes("sea") || v.includes("palm")) return "Sea";
+  if (v.includes("city") || v.includes("internal") || v.includes("szr")) return "City";
+  // Default: try to match any comp with the same view string
+  return "Sea"; // default to Sea for premium views
 }

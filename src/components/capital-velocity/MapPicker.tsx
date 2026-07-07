@@ -106,11 +106,11 @@ export function MapPicker({
   }, [selectedLat, selectedLng]);
 
   return (
-    <div className="relative w-full h-full rounded-xl overflow-hidden border" style={{ borderColor: "var(--border)" }}>
+    <div className="relative w-full h-full rounded-xl overflow-hidden border-2" style={{ borderColor: "var(--border-strong)" }}>
       <MapContainer
         center={defaultCenter}
         zoom={13}
-        style={{ width: "100%", height: "100%", background: "#0A0A0A" }}
+        style={{ width: "100%", height: "100%", background: "#1a1a2e" }}
         ref={(map) => {
           if (map) {
             mapRef.current = map;
@@ -118,10 +118,10 @@ export function MapPicker({
           }
         }}
       >
-        {/* Dark theme tiles from CartoDB */}
+        {/* Voyager light tiles — readable against dark UI, pops with contrast */}
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
         />
 
         {/* POI markers */}
