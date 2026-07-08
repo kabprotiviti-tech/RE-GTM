@@ -18,6 +18,7 @@ import {
   Check,
   Shield,
   Rocket,
+  Sliders,
   Train,
   Waves,
   GraduationCap,
@@ -43,6 +44,7 @@ import { StepProgress } from "@/components/capital-velocity/StepProgress";
 import { MarketIntelligence } from "@/components/capital-velocity/MarketIntelligence";
 import { FinanceCompliancePanel } from "@/components/capital-velocity/FinanceCompliancePanel";
 import { LaunchPhasingPanel } from "@/components/capital-velocity/LaunchPhasingPanel";
+import { SensitivitySliders } from "@/components/capital-velocity/SensitivitySliders";
 import { usePDFExport } from "@/hooks/use-pdf-export";
 import {
   calculateBasePricing,
@@ -395,7 +397,7 @@ export default function Home() {
                           {parcelLat ? `${parcelLat.toFixed(4)}, ${parcelLng?.toFixed(4)}` : "No selection"}
                         </span>
                       </div>
-                      <div style={{ height: "450px", position: "relative", overflow: "hidden", flexShrink: 0 }}>
+                      <div style={{ height: "450px", width: "100%", position: "relative", overflow: "hidden", flexShrink: 0, borderRadius: "8px" }}>
                         <MapPickerWrapper
                           selectedLat={parcelLat}
                           selectedLng={parcelLng}
@@ -705,6 +707,24 @@ export default function Home() {
                   <div className="p-5">
                     <ScenarioTable scenarios={scenarios} recommendedScenario={scenarioSummary.best_net_scenario} />
                   </div>
+                </div>
+
+                {/* === INTERACTIVE SENSITIVITY SLIDERS === */}
+                <div className="mt-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Sliders size={14} style={{ color: "var(--gold)" }} />
+                    <h3 className="text-sm font-semibold" style={{ color: "var(--text-heading)" }}>
+                      What-If Impact Analysis — Drag to See How Changes Affect Profit
+                    </h3>
+                  </div>
+                  <SensitivitySliders
+                    basePricePsqft={activePricing.optimal_psf ?? 2500}
+                    totalSaleableArea={sqft * unitCount}
+                    totalUnits={unitCount}
+                    avgUnitSize={sqft}
+                    landCost={50000000}
+                    constructionMonths={timelineMonths}
+                  />
                 </div>
 
                 {/* === LAUNCH PHASING === */}

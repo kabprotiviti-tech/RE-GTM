@@ -13,5 +13,9 @@ const MapPicker = dynamic(() => import("./MapPicker").then((m) => m.MapPicker), 
 });
 
 export function MapPickerWrapper(props: any) {
-  return <MapPicker {...props} />;
+  return (
+    <div style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden" }}>
+      <MapPicker {...props} />
+    </div>
+  );
 }

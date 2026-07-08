@@ -109,17 +109,18 @@ export function MapPicker({
   }, [selectedLat, selectedLng]);
 
   return (
-    <div className="absolute inset-0 overflow-hidden" style={{ background: "#1a1a2e" }}>
+    <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, overflow: "hidden", background: "#1a1a2e" }}>
       <MapContainer
         center={defaultCenter}
         zoom={13}
-        style={{ width: "100%", height: "100%", background: "#1a1a2e", position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+        style={{ width: "100%", height: "100%", position: "absolute", top: 0, left: 0 }}
         ref={(map) => {
           if (map) {
             mapRef.current = map;
             setMapReady(true);
-            // Invalidate size after mount to prevent layout issues
-            setTimeout(() => map.invalidateSize(), 100);
+            // Invalidate size after mount and on resize to prevent grey tiles
+            setTimeout(() => map.invalidateSize(), 200);
+            setTimeout(() => map.invalidateSize(), 500);
           }
         }}
       >
