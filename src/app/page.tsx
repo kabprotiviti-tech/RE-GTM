@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   Check,
   Shield,
+  Rocket,
   Train,
   Waves,
   GraduationCap,
@@ -41,6 +42,7 @@ import { ProximityDashboard } from "@/components/capital-velocity/ProximityDashb
 import { StepProgress } from "@/components/capital-velocity/StepProgress";
 import { MarketIntelligence } from "@/components/capital-velocity/MarketIntelligence";
 import { FinanceCompliancePanel } from "@/components/capital-velocity/FinanceCompliancePanel";
+import { LaunchPhasingPanel } from "@/components/capital-velocity/LaunchPhasingPanel";
 import { usePDFExport } from "@/hooks/use-pdf-export";
 import {
   calculateBasePricing,
@@ -393,7 +395,7 @@ export default function Home() {
                           {parcelLat ? `${parcelLat.toFixed(4)}, ${parcelLng?.toFixed(4)}` : "No selection"}
                         </span>
                       </div>
-                      <div style={{ height: "500px" }}>
+                      <div style={{ height: "450px", position: "relative", overflow: "hidden", flexShrink: 0 }}>
                         <MapPickerWrapper
                           selectedLat={parcelLat}
                           selectedLng={parcelLng}
@@ -703,6 +705,22 @@ export default function Home() {
                   <div className="p-5">
                     <ScenarioTable scenarios={scenarios} recommendedScenario={scenarioSummary.best_net_scenario} />
                   </div>
+                </div>
+
+                {/* === LAUNCH PHASING === */}
+                <div className="mt-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Rocket size={14} style={{ color: "var(--gold)" }} />
+                    <h3 className="text-sm font-semibold" style={{ color: "var(--text-heading)" }}>
+                      Launch Phasing Strategy — Price Realization Across 4 Phases
+                    </h3>
+                  </div>
+                  <LaunchPhasingPanel
+                    basePricePsqft={activePricing.optimal_psf ?? 2500}
+                    totalUnits={unitCount}
+                    avgUnitSize={sqft}
+                    corridor={corridor}
+                  />
                 </div>
 
                 <StepNav onPrev={prevStep} onNext={nextStep} nextLabel="Generate GTM Strategy →" prevLabel="← Back to Finance" />

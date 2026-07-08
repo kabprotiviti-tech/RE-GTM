@@ -109,15 +109,17 @@ export function MapPicker({
   }, [selectedLat, selectedLng]);
 
   return (
-    <div className="relative w-full h-full rounded-xl overflow-hidden border-2" style={{ borderColor: "var(--border-strong)" }}>
+    <div className="absolute inset-0 overflow-hidden" style={{ background: "#1a1a2e" }}>
       <MapContainer
         center={defaultCenter}
         zoom={13}
-        style={{ width: "100%", height: "100%", background: "#1a1a2e" }}
+        style={{ width: "100%", height: "100%", background: "#1a1a2e", position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
         ref={(map) => {
           if (map) {
             mapRef.current = map;
             setMapReady(true);
+            // Invalidate size after mount to prevent layout issues
+            setTimeout(() => map.invalidateSize(), 100);
           }
         }}
       >
