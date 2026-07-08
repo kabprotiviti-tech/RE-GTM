@@ -18,7 +18,7 @@ import {
   type ProximityResult,
 } from "@/lib/engines/dubai-poi";
 
-// Fix Leaflet's default icon paths (needed for bundlers)
+// Fix Leaflet's default icon paths
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
@@ -71,7 +71,6 @@ interface MapPickerProps {
   proximityResults: ProximityResult[];
 }
 
-// Component that handles map clicks
 function MapClickHandler({ onSelect }: { onSelect: (lat: number, lng: number) => void }) {
   useMapEvents({
     click(e) {
@@ -90,47 +89,59 @@ export function MapPicker({
 }: MapPickerProps) {
   const [mapReady, setMapReady] = useState(false);
   const mapRef = useRef<L.Map | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Default center: Dubai Marina
   const defaultCenter: [number, number] = [25.0772, 55.1390];
 
-  // Filter visible POIs
-  // Filter visible POIs — emirate-aware (show POIs for the parcel's emirate)
   const parcelEmirate = selectedLat ? detectEmirate(selectedLat, selectedLng || 0) : "Dubai";
   const visiblePOIs = UAE_POIS.filter((poi) =>
     visibleCategories.has(poi.category) && poi.emirate === parcelEmirate
   );
 
-  // Pan to selected location when it changes
   useEffect(() => {
     if (mapRef.current && selectedLat && selectedLng) {
       mapRef.current.panTo([selectedLat, selectedLng], { animate: true });
     }
   }, [selectedLat, selectedLng]);
 
+  // Fix: invalidateSize when the container resizes
+  useEffect(() => {
+    if (!containerRef.current || !mapRef.current) return;
+
+    const observer = new ResizeObserver(() => {
+      if (mapRef.current) {
+        mapRef.current.invalidateSize();
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [mapReady]);
+
+  const handoverMonth = proximityResults.length > 0 ? 0 : 0;
+
   return (
-    <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, overflow: "hidden", background: "#1a1a2e" }}>
+    <div
+      ref={containerRef}
+      style={{ width: "100%", height: "100%", position: "relative" }}
+    >
       <MapContainer
         center={defaultCenter}
         zoom={13}
-        style={{ width: "100%", height: "100%", position: "absolute", top: 0, left: 0 }}
+        style={{ width: "100%", height: "100%" }}
         ref={(map) => {
-          if (map) {
+          if (map && !mapRef.current) {
             mapRef.current = map;
             setMapReady(true);
-            // Invalidate size after mount and on resize to prevent grey tiles
-            setTimeout(() => map.invalidateSize(), 200);
-            setTimeout(() => map.invalidateSize(), 500);
+            setTimeout(() => map.invalidateSize(), 100);
+            setTimeout(() => map.invalidateSize(), 300);
           }
         }}
       >
-        {/* Voyager light tiles — readable against dark UI, pops with contrast */}
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
           url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
         />
 
-        {/* POI markers */}
         {visiblePOIs.map((poi) => {
           const config = POI_CATEGORIES[poi.category];
           return (
@@ -158,7 +169,6 @@ export function MapPicker({
           );
         })}
 
-        {/* Selected parcel marker */}
         {selectedLat && selectedLng && (
           <Marker position={[selectedLat, selectedLng]} icon={parcelIcon}>
             <Popup>
@@ -173,7 +183,6 @@ export function MapPicker({
           </Marker>
         )}
 
-        {/* Proximity circles for the nearest POIs */}
         {proximityResults.map((result) => {
           if (!result.nearest || result.distanceKm > 3) return null;
           const config = POI_CATEGORIES[result.category];
@@ -197,29 +206,39 @@ export function MapPicker({
         <MapClickHandler onSelect={onSelect} />
       </MapContainer>
 
-      {/* Loading overlay */}
       {!mapReady && (
         <div
-          className="absolute inset-0 flex items-center justify-center"
-          style={{ background: "var(--ground)" }}
+          style={{
+            position: "absolute",
+            top: 0, left: 0, right: 0, bottom: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "#1a1a2e",
+            zIndex: 1000,
+          }}
         >
-          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-            Loading map...
-          </div>
+          <div style={{ color: "#94A3B8", fontSize: "12px" }}>Loading map...</div>
         </div>
       )}
 
-      {/* Instructions overlay */}
       {mapReady && !selectedLat && (
         <div
-          className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg pointer-events-none"
           style={{
-            background: "color-mix(in srgb, var(--surface) 90%, transparent)",
-            border: "1px solid var(--gold)",
+            position: "absolute",
+            top: "16px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            padding: "8px 16px",
+            borderRadius: "8px",
+            background: "rgba(20, 20, 20, 0.9)",
+            border: "1px solid #D4AF37",
             backdropFilter: "blur(8px)",
+            zIndex: 1000,
+            pointerEvents: "none",
           }}
         >
-          <span className="text-xs font-medium" style={{ color: "var(--gold)" }}>
+          <span style={{ color: "#D4AF37", fontSize: "12px", fontWeight: 500 }}>
             Click on the map to select your land parcel
           </span>
         </div>

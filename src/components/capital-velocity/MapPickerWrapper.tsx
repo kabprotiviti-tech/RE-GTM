@@ -2,20 +2,15 @@
 
 import dynamic from "next/dynamic";
 
-// Dynamically import MapPicker with ssr: false — Leaflet requires window
 const MapPicker = dynamic(() => import("./MapPicker").then((m) => m.MapPicker), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-full flex items-center justify-center" style={{ background: "var(--ground)" }}>
-      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Loading map...</div>
+    <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "#1a1a2e" }}>
+      <div style={{ color: "#94A3B8", fontSize: "12px" }}>Loading map...</div>
     </div>
   ),
 });
 
 export function MapPickerWrapper(props: any) {
-  return (
-    <div style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden" }}>
-      <MapPicker {...props} />
-    </div>
-  );
+  return <MapPicker {...props} />;
 }
