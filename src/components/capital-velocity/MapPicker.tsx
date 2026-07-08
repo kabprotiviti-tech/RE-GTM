@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -46,6 +46,7 @@ function MapClickHandler({ onSelect }: { onSelect: (lat: number, lng: number) =>
 }
 
 interface MapPickerProps {
+  mapHeight: number;
   selectedLat: number | null;
   selectedLng: number | null;
   onSelect: (lat: number, lng: number) => void;
@@ -54,6 +55,7 @@ interface MapPickerProps {
 }
 
 export function MapPicker({
+  mapHeight,
   selectedLat,
   selectedLng,
   onSelect,
@@ -61,23 +63,21 @@ export function MapPicker({
   proximityResults,
 }: MapPickerProps) {
   const mapRef = useRef<L.Map | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const [dims, setDims] = useState({ w: 800, h: 450 });
   const [mapReady, setMapReady] = useState(false);
+  const [mapWidth, setMapWidth] = useState(600);
 
-  // Measure the parent container's actual pixel dimensions
+  // Measure width from window
   useEffect(() => {
-    if (!containerRef.current) return;
     const measure = () => {
-      const rect = containerRef.current!.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        setDims({ w: Math.round(rect.width), h: Math.round(rect.height) });
-      }
+      // The map is in a 2/3 width column on desktop
+      const w = window.innerWidth >= 1024 
+        ? Math.min(window.innerWidth * 0.6 - 80, 900)
+        : window.innerWidth - 80;
+      setMapWidth(Math.max(300, w));
     };
     measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
   }, []);
 
   const parcelEmirate = selectedLat ? detectEmirate(selectedLat, selectedLng || 0) : "Dubai";
@@ -93,85 +93,74 @@ export function MapPicker({
 
   useEffect(() => {
     if (mapRef.current) {
-      setTimeout(() => mapRef.current?.invalidateSize(), 50);
+      setTimeout(() => mapRef.current?.invalidateSize(), 100);
     }
-  }, [dims]);
+  }, [mapWidth]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        width: "100%",
-        height: "100%",
-        position: "relative",
-        overflow: "hidden",
-      }}
-    >
-      {/* Use explicit pixel dimensions — no percentage inheritance */}
-      <div style={{ width: `${dims.w}px`, height: `${dims.h}px`, position: "relative" }}>
-        <MapContainer
-          center={[25.0772, 55.1390]}
-          zoom={13}
-          style={{ width: `${dims.w}px`, height: `${dims.h}px` }}
-          ref={(map) => {
-            if (map && !mapRef.current) {
-              mapRef.current = map;
-              setMapReady(true);
-              setTimeout(() => map.invalidateSize(), 100);
-              setTimeout(() => map.invalidateSize(), 500);
-            }
-          }}
-        >
-          <TileLayer
-            attribution='&copy; OpenStreetMap &copy; CARTO'
-            url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-          />
+    <div style={{ width: `${mapWidth}px`, height: `${mapHeight}px`, position: "relative", overflow: "hidden" }}>
+      <MapContainer
+        center={[25.0772, 55.1390]}
+        zoom={13}
+        style={{ width: `${mapWidth}px`, height: `${mapHeight}px` }}
+        ref={(map) => {
+          if (map && !mapRef.current) {
+            mapRef.current = map;
+            setMapReady(true);
+            setTimeout(() => map.invalidateSize(), 100);
+            setTimeout(() => map.invalidateSize(), 500);
+          }
+        }}
+      >
+        <TileLayer
+          attribution='&copy; OpenStreetMap &copy; CARTO'
+          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+        />
 
-          {visiblePOIs.map((poi) => {
-            const config = POI_CATEGORIES[poi.category];
-            return (
-              <Marker key={poi.id} position={[poi.lat, poi.lng]} icon={createPOIIcon(config.color, config.icon)}>
-                <Popup>
-                  <div style={{ fontFamily: "Inter, sans-serif", fontSize: "12px" }}>
-                    <strong style={{ color: config.color }}>{config.label}</strong><br />
-                    {poi.name}
-                    {poi.description && <><br /><span style={{ color: "#64748B", fontSize: "10px" }}>{poi.description}</span></>}
-                  </div>
-                </Popup>
-              </Marker>
-            );
-          })}
-
-          {selectedLat && selectedLng && (
-            <Marker position={[selectedLat, selectedLng]} icon={parcelIcon}>
+        {visiblePOIs.map((poi) => {
+          const config = POI_CATEGORIES[poi.category];
+          return (
+            <Marker key={poi.id} position={[poi.lat, poi.lng]} icon={createPOIIcon(config.color, config.icon)}>
               <Popup>
                 <div style={{ fontFamily: "Inter, sans-serif", fontSize: "12px" }}>
-                  <strong style={{ color: "#D4AF37" }}>Selected Parcel</strong><br />
-                  <span style={{ color: "#64748B", fontSize: "10px" }}>{selectedLat.toFixed(4)}, {selectedLng.toFixed(4)}</span>
+                  <strong style={{ color: config.color }}>{config.label}</strong><br />
+                  {poi.name}
+                  {poi.description && <><br /><span style={{ color: "#64748B", fontSize: "10px" }}>{poi.description}</span></>}
                 </div>
               </Popup>
             </Marker>
-          )}
+          );
+        })}
 
-          {proximityResults.map((result) => {
-            if (!result.nearest || result.distanceKm > 3) return null;
-            const config = POI_CATEGORIES[result.category];
-            return (
-              <Circle
-                key={`circle-${result.category}`}
-                center={[result.nearest.lat, result.nearest.lng]}
-                radius={result.distanceKm * 1000}
-                pathOptions={{ color: config.color, fillColor: config.color, fillOpacity: 0.05, weight: 1, dashArray: "4 4" }}
-              />
-            );
-          })}
+        {selectedLat && selectedLng && (
+          <Marker position={[selectedLat, selectedLng]} icon={parcelIcon}>
+            <Popup>
+              <div style={{ fontFamily: "Inter, sans-serif", fontSize: "12px" }}>
+                <strong style={{ color: "#D4AF37" }}>Selected Parcel</strong><br />
+                <span style={{ color: "#64748B", fontSize: "10px" }}>{selectedLat.toFixed(4)}, {selectedLng.toFixed(4)}</span>
+              </div>
+            </Popup>
+          </Marker>
+        )}
 
-          <MapClickHandler onSelect={onSelect} />
-        </MapContainer>
-      </div>
+        {proximityResults.map((result) => {
+          if (!result.nearest || result.distanceKm > 3) return null;
+          const config = POI_CATEGORIES[result.category];
+          return (
+            <Circle
+              key={`circle-${result.category}`}
+              center={[result.nearest.lat, result.nearest.lng]}
+              radius={result.distanceKm * 1000}
+              pathOptions={{ color: config.color, fillColor: config.color, fillOpacity: 0.05, weight: 1, dashArray: "4 4" }}
+            />
+          );
+        })}
+
+        <MapClickHandler onSelect={onSelect} />
+      </MapContainer>
 
       {!mapReady && (
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#1a1a2e", zIndex: 1000 }}>
+        <div style={{ position: "absolute", top: 0, left: 0, width: `${mapWidth}px`, height: `${mapHeight}px`, display: "flex", alignItems: "center", justifyContent: "center", background: "#1a1a2e", zIndex: 1000 }}>
           <div style={{ color: "#94A3B8", fontSize: "12px" }}>Loading map...</div>
         </div>
       )}

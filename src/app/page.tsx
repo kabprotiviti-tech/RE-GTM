@@ -397,8 +397,9 @@ export default function Home() {
                           {parcelLat ? `${parcelLat.toFixed(4)}, ${parcelLng?.toFixed(4)}` : "No selection"}
                         </span>
                       </div>
-                      <div style={{ height: "450px", width: "100%", position: "relative", overflow: "hidden", flexShrink: 0, borderRadius: "8px" }}>
+                      <div style={{ height: "450px", width: "100%", position: "relative", overflow: "hidden", flexShrink: 0, borderRadius: "8px", background: "#1a1a2e" }}>
                         <MapPickerWrapper
+                          mapHeight={450}
                           selectedLat={parcelLat}
                           selectedLng={parcelLng}
                           onSelect={(lat, lng) => { setParcelLat(lat); setParcelLng(lng); }}
