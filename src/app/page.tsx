@@ -38,7 +38,7 @@ import { CashflowChart } from "@/components/capital-velocity/CashflowChart";
 import { ScenarioTable } from "@/components/capital-velocity/ScenarioTable";
 import { GTMPanel } from "@/components/capital-velocity/GTMPanel";
 import { ConfidenceIndicator } from "@/components/capital-velocity/ConfidenceIndicator";
-import { MapPickerWrapper } from "@/components/capital-velocity/MapPickerWrapper";
+import { IframeMapPicker } from "@/components/capital-velocity/IframeMapPicker";
 import { ProximityDashboard } from "@/components/capital-velocity/ProximityDashboard";
 import { StepProgress } from "@/components/capital-velocity/StepProgress";
 import { MarketIntelligence } from "@/components/capital-velocity/MarketIntelligence";
@@ -398,7 +398,7 @@ export default function Home() {
                         </span>
                       </div>
                       <div className="cv-map-container" style={{ height: "450px", width: "100%", position: "relative", overflow: "hidden", flexShrink: 0, borderRadius: "8px", background: "#1a1a2e" }}>
-                        <MapPickerWrapper
+                        <IframeMapPicker
                           mapHeight={450}
                           selectedLat={parcelLat}
                           selectedLng={parcelLng}
