@@ -23,7 +23,12 @@ const STEPS = [
 
 export function StepProgress({ currentStep, maxStep, onStepClick }: { currentStep: number; maxStep: number; onStepClick: (step: number) => void }) {
   const [isDesktop, setIsDesktop] = useState(false);
-  useEffect(() => { setIsDesktop(window.innerWidth >= 768); }, []);
+  useEffect(() => {
+    const check = () => setIsDesktop(window.innerWidth >= 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, padding: "8px 16px" }}>
       {STEPS.map((step, i) => {

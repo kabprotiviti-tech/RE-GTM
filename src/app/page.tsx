@@ -34,6 +34,9 @@ import { ScenarioTable } from "@/components/capital-velocity/ScenarioTable";
 import { GTMPanel } from "@/components/capital-velocity/GTMPanel";
 import { ConfidenceIndicator } from "@/components/capital-velocity/ConfidenceIndicator";
 import { usePDFExport } from "@/hooks/use-pdf-export";
+import { searchAreas, type AreaResult } from "@/lib/engines/area-search";
+import { generatePremiumReport } from "@/lib/engines/premium-report";
+import { calculateProjectFinance, CONSTRUCTION_COST_TIERS } from "@/lib/engines/finance-engine";
 
 const ALL_CATEGORIES: POICategory[] = ["metro", "sea", "school", "mall", "park", "hospital", "highway"];
 const POI_ICONS: Record<string, any> = { metro: Train, sea: Waves, school: GraduationCap, mall: ShoppingBag, park: Trees, hospital: Hospital, highway: Route };
@@ -71,7 +74,28 @@ export default function Home() {
   const [parcelLat, setParcelLat] = useState<number | null>(25.0772);
   const [parcelLng, setParcelLng] = useState<number | null>(55.1390);
   const [visibleCategories, setVisibleCategories] = useState<Set<string>>(new Set(ALL_CATEGORIES));
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<AreaResult[]>([]);
+  const [showSearch, setShowSearch] = useState(false);
   const toggleCategory = (cat: string) => setVisibleCategories(p => { const n = new Set(p); if (n.has(cat)) { n.delete(cat); } else { n.add(cat); } return n; });
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    if (query.trim().length >= 2) {
+      setSearchResults(searchAreas(query));
+      setShowSearch(true);
+    } else {
+      setSearchResults([]);
+      setShowSearch(false);
+    }
+  };
+
+  const selectArea = (area: AreaResult) => {
+    setParcelLat(area.lat);
+    setParcelLng(area.lng);
+    setSearchQuery(area.name);
+    setShowSearch(false);
+  };
 
   const proximityResults = useMemo(() => parcelLat != null && parcelLng != null ? calculateProximity(parcelLat, parcelLng) : [], [parcelLat, parcelLng]);
   const locationPremium = useMemo(() => calculateTotalLocationPremium(proximityResults), [proximityResults]);
@@ -163,7 +187,63 @@ export default function Home() {
   useEffect(() => { if (lastSpec && currentSpec !== lastSpec) { setGtmGenerated(false); setRationaleGenerated(false); setStructuredGenerated(false); } setLastSpec(currentSpec); }, [currentSpec, lastSpec]);
 
   const hasData = activePricing.optimal_psf != null;
-  const { exportToPDF, exporting: pdfExporting } = usePDFExport();
+  const [pdfExporting, setPdfExporting] = useState(false);
+
+  const handleExportPDF = () => {
+    setPdfExporting(true);
+    try {
+      // Calculate finance for the report
+      const tierConfig = CONSTRUCTION_COST_TIERS.premium;
+      const finance = calculateProjectFinance({
+        totalSaleableArea: sqft * unitCount,
+        avgPricePsqft: activePricing.optimal_psf ?? 2500,
+        totalUnits: unitCount,
+        landCost: 50000000,
+        constructionCostPsqft: tierConfig.costPsqft,
+        gfaRatio: tierConfig.gfaRatio,
+        softCostPct: tierConfig.softCostPct,
+        marketingCostPct: tierConfig.marketingPct,
+        financeCostPct: tierConfig.financePct,
+        equityPct: 0.40,
+        loanPct: 0.60,
+        loanInterestRate: 8.5,
+        loanTenorMonths: timelineMonths,
+        constructionMonths: timelineMonths,
+        salesPeriodMonths: Math.min(timelineMonths, 24),
+        wacc: 12,
+      });
+
+      generatePremiumReport({
+        projectName, corridor,
+        emirate: parcelLat && parcelLng ? detectEmirate(parcelLat, parcelLng) : "Dubai",
+        parcelLat, parcelLng, locationPremium,
+        unitType, microView, floor, sqft, unitCount, developer, paymentPlan, timelineMonths,
+        pricingMethod, amenityScore,
+        pricing: activePricing,
+        baseConfidence: basePricing.data_confidence,
+        baseCompCount: basePricing.comp_count,
+        scenarios, scenarioSummary, cashflowSummary, proximityResults,
+        gtmNarrative, rationale,
+        finance: {
+          grossRevenue: finance.grossRevenue,
+          totalCost: finance.totalCost,
+          netProfit: finance.netProfit,
+          profitMargin: finance.profitMargin,
+          roi: finance.roi,
+          roe: finance.roe,
+          irr: finance.irr,
+          npv: finance.npv,
+          paybackMonths: finance.paybackMonths,
+          equityInvestment: finance.equityInvestment,
+          loanAmount: finance.loanAmount,
+        },
+      });
+    } catch (e: any) {
+      console.error("PDF generation failed:", e);
+    } finally {
+      setPdfExporting(false);
+    }
+  };
 
   return (
     <div style={{ background: COLORS.bg, minHeight: "100vh", fontFamily: "Inter, sans-serif" }}>
@@ -181,7 +261,7 @@ export default function Home() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {step === 6 && (
-              <button onClick={() => exportToPDF("analysis-content", projectName)} disabled={pdfExporting || !hasData}
+              <button onClick={handleExportPDF} disabled={pdfExporting || !hasData}
                 style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 8, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", background: COLORS.gold, color: "#fff", border: "none", cursor: hasData ? "pointer" : "not-allowed", opacity: hasData ? 1 : 0.4 }}>
                 <FileDown size={12} /> {pdfExporting ? "Generating..." : "Export PDF"}
               </button>
@@ -199,12 +279,41 @@ export default function Home() {
             {/* STEP 1: MAP */}
             {step === 1 && (
               <div>
-                <StepHeader icon={<MapPin size={18} />} title="Select Your Land Parcel" subtitle="Click anywhere on the map to drop your parcel. We calculate proximity to metro, sea, schools, and malls instantly." />
+                <StepHeader icon={<MapPin size={18} />} title="Select Your Land Parcel" subtitle="Search for an area or click on the map to drop your parcel. We calculate proximity to metro, sea, schools, and malls instantly." />
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 24 }}>
                   <div style={{ background: COLORS.surface, borderRadius: 16, border: `1px solid ${COLORS.border}`, overflow: "hidden" }}>
-                    <div style={{ padding: "16px 20px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: COLORS.text }}>Dubai Map — Click to Select</span>
-                      <span style={{ fontSize: 11, fontFamily: "monospace", color: COLORS.gold }}>{parcelLat ? `${parcelLat.toFixed(4)}, ${parcelLng?.toFixed(4)}` : "No selection"}</span>
+                    {/* Search bar */}
+                    <div style={{ padding: "12px 20px", borderBottom: `1px solid ${COLORS.border}`, position: "relative" }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <div style={{ position: "relative", flex: 1 }}>
+                          <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => handleSearch(e.target.value)}
+                            onFocus={() => searchResults.length > 0 && setShowSearch(true)}
+                            onBlur={() => setTimeout(() => setShowSearch(false), 200)}
+                            placeholder="Search area (e.g. Marina, Saadiyat, Business Bay...)"
+                            style={{ width: "100%", padding: "10px 14px 10px 36px", borderRadius: 10, fontSize: 13, border: `1px solid ${COLORS.border}`, background: COLORS.surfaceAlt, color: COLORS.text, outline: "none" }}
+                            onFocusCapture={e => e.currentTarget.style.borderColor = COLORS.gold}
+                            onBlurCapture={e => e.currentTarget.style.borderColor = COLORS.border}
+                          />
+                          <MapPin size={14} style={{ position: "absolute", left: 12, top: 11, color: COLORS.gold }} />
+                          {showSearch && searchResults.length > 0 && (
+                            <div style={{ position: "absolute", top: 44, left: 0, right: 0, background: "#fff", borderRadius: 10, border: `1px solid ${COLORS.border}`, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 1000, maxHeight: 280, overflowY: "auto" }}>
+                              {searchResults.map((area, i) => (
+                                <div key={i} onClick={() => selectArea(area)} style={{ padding: "10px 14px", cursor: "pointer", borderBottom: i < searchResults.length - 1 ? `1px solid ${COLORS.border}` : "none", display: "flex", justifyContent: "space-between", alignItems: "center" }} onMouseEnter={e => e.currentTarget.style.background = COLORS.surfaceAlt} onMouseLeave={e => e.currentTarget.style.background = "#fff"}>
+                                  <div>
+                                    <div style={{ fontSize: 12, fontWeight: 600, color: COLORS.text }}>{area.name}</div>
+                                    <div style={{ fontSize: 10, color: COLORS.textMuted }}>{area.emirate} · {area.description}</div>
+                                  </div>
+                                  <MapPin size={12} style={{ color: COLORS.gold }} />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <span style={{ fontSize: 11, fontFamily: "monospace", color: COLORS.gold, whiteSpace: "nowrap" }}>{parcelLat ? `${parcelLat.toFixed(4)}, ${parcelLng?.toFixed(4)}` : "No selection"}</span>
+                      </div>
                     </div>
                     <div style={{ height: 450, position: "relative" }}>
                       <MapPickerWrapper selectedLat={parcelLat} selectedLng={parcelLng} onSelect={(lat: number, lng: number) => { setParcelLat(lat); setParcelLng(lng); }} visibleCategories={visibleCategories} proximityResults={proximityResults} />
