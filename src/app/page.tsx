@@ -102,7 +102,38 @@ export default function Home() {
 
   const [projectName, setProjectName] = useState("Marina Gate IV");
   const [corridor, setCorridor] = useState("Dubai Marina");
-  const [unitType, setUnitType] = useState<"1BR" | "2BR" | "3BR">("2BR");
+  const [unitMix, setUnitMix] = useState<Record<string, number>>({ "2BR": 100 });
+
+  const updateUnitMix = (type: string, pct: number) => {
+    setUnitMix(prev => {
+      const next = { ...prev };
+      if (pct <= 0) {
+        delete next[type];
+      } else {
+        next[type] = pct;
+      }
+      // If empty, default to 2BR 100%
+      if (Object.keys(next).length === 0) next["2BR"] = 100;
+      return next;
+    });
+  };
+
+  const toggleUnitType = (type: string) => {
+    setUnitMix(prev => {
+      const next = { ...prev };
+      if (next[type]) {
+        delete next[type];
+      } else {
+        // Distribute: give new type 10% and reduce others proportionally
+        next[type] = 10;
+      }
+      if (Object.keys(next).length === 0) next["2BR"] = 100;
+      return next;
+    });
+  };
+
+  const unitMixTotal = Object.values(unitMix).reduce((s, v) => s + v, 0);
+  const primaryUnitType = Object.entries(unitMix).sort((a, b) => b[1] - a[1])[0]?.[0] || "2BR";
   const [microView, setMicroView] = useState("Full Marina");
   const [floor, setFloor] = useState(80);
   const [sqft, setSqft] = useState(2400);
@@ -114,8 +145,8 @@ export default function Home() {
   const [amenityScore, setAmenityScore] = useState(9);
 
   const macroView = microToMacroView(microView);
-  const basePricing = useMemo(() => calculateBasePricing({ unit_type: unitType, view: macroView, developer }), [unitType, macroView, developer]);
-  const microPricing = useMemo(() => applyMicroAdjustments(basePricing, { unit_type: unitType, view: microView, floor_number: floor, sqft }), [basePricing, unitType, microView, floor, sqft]);
+  const basePricing = useMemo(() => calculateBasePricing({ unit_type: primaryUnitType, view: macroView, developer }), [primaryUnitType, macroView, developer]);
+  const microPricing = useMemo(() => applyMicroAdjustments(basePricing, { unit_type: primaryUnitType, view: microView, floor_number: floor, sqft }), [basePricing, primaryUnitType, microView, floor, sqft]);
   const hedonicPricing = useMemo(() => calculateHedonicPricing({ floor, amenity_score: amenityScore, view: microView }), [floor, amenityScore, microView]);
 
   const engineOptimal = pricingMethod === "hedonic" ? hedonicPricing.optimal : (microPricing.final_optimal_psf ?? 0);
@@ -130,7 +161,7 @@ export default function Home() {
     method: pricingMethod,
   };
 
-  const compsUsed = useMemo(() => MOCK_COMPS.filter(c => c.unit_type === unitType && c.view === macroView), [unitType, macroView]);
+  const compsUsed = useMemo(() => MOCK_COMPS.filter(c => c.unit_type === primaryUnitType && c.view === macroView), [primaryUnitType, macroView]);
   const baseAbsorptionDays = useMemo(() => compsUsed.length ? compsUsed.reduce((s, c) => s + c.absorption_days_50pct, 0) / compsUsed.length : 58, [compsUsed]);
   const cashflowData = useMemo(() => activePricing.estimated_unit_price != null ? simulateCashflow(activePricing.estimated_unit_price, paymentPlan, timelineMonths) : [], [activePricing.estimated_unit_price, paymentPlan, timelineMonths]);
   const cashflowSummary = useMemo(() => summarizeCashflow(cashflowData), [cashflowData]);
@@ -155,11 +186,11 @@ export default function Home() {
     setGtmLoading(true); setGtmNarrative("");
     try {
       const payload = { scenarios, summary: scenarioSummary, cashflow: { payment_plan: paymentPlan, timeline_months: timelineMonths, month_0_collected: cashflowSummary.month_0_collected, handover_collected: cashflowSummary.handover_collected }, pricing: { ...activePricing, location_premium: locationPremium, parcel_lat: parcelLat, parcel_lng: parcelLng } };
-      const brief = `${unitCount}-unit ${unitType} tower at ${parcelLat?.toFixed(4)}, ${parcelLng?.toFixed(4)} — location premium AED ${locationPremium}/sqft. ${developer}, ${timelineMonths}mo, ${paymentPlan}, Floor ${floor} ${microView}.`;
+      const brief = `${unitCount}-unit ${primaryUnitType} tower at ${parcelLat?.toFixed(4)}, ${parcelLng?.toFixed(4)} — location premium AED ${locationPremium}/sqft. ${developer}, ${timelineMonths}mo, ${paymentPlan}, Floor ${floor} ${microView}.`;
       const res = await fetch("/api/gtm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scenario_data_json: payload, project_brief: brief }) });
       const data = await res.json(); setGtmNarrative(data.narrative || "[NARRATOR UNAVAILABLE]"); setGtmGenerated(true);
     } catch (e: any) { setGtmNarrative(`[NARRATOR UNAVAILABLE]\n\n${e.message}`); setGtmGenerated(true); } finally { setGtmLoading(false); }
-  }, [scenarios, scenarioSummary, paymentPlan, timelineMonths, cashflowSummary, activePricing, locationPremium, parcelLat, parcelLng, unitCount, unitType, developer, floor, microView]);
+  }, [scenarios, scenarioSummary, paymentPlan, timelineMonths, cashflowSummary, activePricing, locationPremium, parcelLat, parcelLng, unitCount, primaryUnitType, developer, floor, microView]);
 
   const fetchRationale = useCallback(async () => {
     setRationaleLoading(true); setRationale("");
@@ -183,7 +214,7 @@ export default function Home() {
   useEffect(() => { if (step === 6 && !gtmGenerated && scenarios.length > 0) fetchGTM(); }, [step, gtmGenerated, scenarios.length]);
 
   const [lastSpec, setLastSpec] = useState("");
-  const currentSpec = `${unitType}|${microView}|${floor}|${sqft}|${developer}|${paymentPlan}|${timelineMonths}|${unitCount}|${pricingMethod}|${amenityScore}|${parcelLat}|${parcelLng}`;
+  const currentSpec = `${primaryUnitType}|${microView}|${floor}|${sqft}|${developer}|${paymentPlan}|${timelineMonths}|${unitCount}|${pricingMethod}|${amenityScore}|${parcelLat}|${parcelLng}`;
   useEffect(() => { if (lastSpec && currentSpec !== lastSpec) { setGtmGenerated(false); setRationaleGenerated(false); setStructuredGenerated(false); } setLastSpec(currentSpec); }, [currentSpec, lastSpec]);
 
   const hasData = activePricing.optimal_psf != null;
@@ -217,7 +248,7 @@ export default function Home() {
         projectName, corridor,
         emirate: parcelLat && parcelLng ? detectEmirate(parcelLat, parcelLng) : "Dubai",
         parcelLat, parcelLng, locationPremium,
-        unitType, microView, floor, sqft, unitCount, developer, paymentPlan, timelineMonths,
+        primaryUnitType, microView, floor, sqft, unitCount, developer, paymentPlan, timelineMonths,
         pricingMethod, amenityScore,
         pricing: activePricing,
         baseConfidence: basePricing.data_confidence,
@@ -342,9 +373,34 @@ export default function Home() {
                   <div style={{ background: COLORS.surface, borderRadius: 16, border: `1px solid ${COLORS.border}`, padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
                     <SpecField label="Project Name" value={projectName} onChange={setProjectName} />
                     <SpecSelect label="Corridor" value={corridor} onChange={setCorridor} options={getAllCorridors().map(c => [c.corridor, `${c.emirate} · ${c.corridor} (${c.projectCount})`] as [string, string])} />
+                    <div>
+                      <label style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: COLORS.textMuted, marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
+                        <span>Unit Mix</span>
+                        <span style={{ color: unitMixTotal === 100 ? COLORS.positive : COLORS.negative, fontSize: 9 }}>{unitMixTotal}%{unitMixTotal !== 100 ? " (must = 100%)" : ""}</span>
+                      </label>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {["Studio", "1BR", "2BR", "3BR", "4BR", "Penthouse"].map(type => {
+                          const active = unitMix[type] != null;
+                          return (
+                            <button key={type} onClick={() => toggleUnitType(type)} style={{ padding: "6px 12px", borderRadius: 8, fontSize: 11, fontWeight: 600, border: `1px solid ${active ? COLORS.gold : COLORS.border}`, background: active ? `${COLORS.gold}15` : COLORS.surfaceAlt, color: active ? COLORS.gold : COLORS.textMuted, cursor: "pointer", transition: "all 0.15s" }}>{type}{active ? ` ${unitMix[type]}%` : ""}</button>
+                          );
+                        })}
+                      </div>
+                      {Object.keys(unitMix).length > 0 && (
+                        <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: `repeat(${Math.min(Object.keys(unitMix).length, 3)}, 1fr)`, gap: 8 }}>
+                          {Object.entries(unitMix).map(([type, pct]) => (
+                            <div key={type} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 10, color: COLORS.textMuted, minWidth: 28 }}>{type}</span>
+                              <input type="range" min={0} max={100} value={pct} onChange={e => updateUnitMix(type, Number(e.target.value))} style={{ flex: 1, accentColor: COLORS.gold, height: 4 }} />
+                              <span style={{ fontSize: 10, fontWeight: 600, color: COLORS.text, minWidth: 28, textAlign: "right" }}>{pct}%</span>
+                              <span style={{ fontSize: 9, color: COLORS.textMuted, minWidth: 40, textAlign: "right" }}>{Math.round(unitCount * pct / 100)}u</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                      <SpecSelect label="Unit Type" value={unitType} onChange={(v) => setUnitType(v as any)} options={[["1BR","1BR"],["2BR","2BR"],["3BR","3BR"]]} />
-                      <SpecField label="Floor" value={String(floor)} onChange={(v) => setFloor(Number(v))} type="number" />
+                      <SpecField label="Reference Floor" value={String(floor)} onChange={(v) => setFloor(Number(v))} type="number" />
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                       <SpecField label="Sqft" value={String(sqft)} onChange={(v) => setSqft(Number(v))} type="number" />
